@@ -79,3 +79,38 @@ type Setting struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
+
+// Stream is a unique label set. ID is a 63-bit hash of LabelsText.
+type Stream struct {
+	ID         uint64 `gorm:"primaryKey"`
+	Labels     string
+	LabelsText string
+	APIKeyID   string `gorm:"column:api_key_id"`
+	FirstSeen  time.Time
+	LastSeen   time.Time
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+// StreamLabel is one key/value pair of a stream, indexed for selector lookup.
+type StreamLabel struct {
+	StreamID  uint64 `gorm:"primaryKey;column:stream_id"`
+	Key       string `gorm:"primaryKey"`
+	Value     string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// Chunk is the index row for one chunk file. Timestamps are unix nanoseconds.
+type Chunk struct {
+	ID              string `gorm:"primaryKey"`
+	StreamID        uint64 `gorm:"column:stream_id"`
+	Path            string
+	MinTS           int64 `gorm:"column:min_ts"`
+	MaxTS           int64 `gorm:"column:max_ts"`
+	LineCount       int
+	BytesCompressed int64
+	BytesRaw        int64
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}

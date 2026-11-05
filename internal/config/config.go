@@ -21,6 +21,8 @@ type Config struct {
 	WALSyncMS     int
 	QueryTimeout  time.Duration
 	MaxStreams    int
+	RateLines     int // default per-key lines/sec
+	RateBytes     int // per-key bytes/sec
 }
 
 func env(k, def string) string {
@@ -50,6 +52,8 @@ func Load() (*Config, error) {
 		AdminPassword: os.Getenv("ARGUS_ADMIN_PASSWORD"),
 		WALSyncMS:     envInt("ARGUS_WAL_SYNC_MS", 200),
 		MaxStreams:    envInt("ARGUS_MAX_STREAMS_PER_KEY", 10000),
+		RateLines:     envInt("ARGUS_RATE_LINES_PER_SEC", 10000),
+		RateBytes:     envInt("ARGUS_RATE_BYTES_PER_SEC", 10<<20),
 	}
 	d, err := time.ParseDuration(env("ARGUS_QUERY_TIMEOUT", "30s"))
 	if err != nil {

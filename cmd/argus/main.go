@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -17,7 +18,12 @@ import (
 	"github.com/cragone/Super-Argus/internal/api"
 	"github.com/cragone/Super-Argus/internal/auth"
 	"github.com/cragone/Super-Argus/internal/config"
+	"github.com/cragone/Super-Argus/internal/chunk"
 	"github.com/cragone/Super-Argus/internal/db"
+	"github.com/cragone/Super-Argus/internal/index"
+	"github.com/cragone/Super-Argus/internal/ingest"
+	"github.com/cragone/Super-Argus/internal/retention"
+	"github.com/cragone/Super-Argus/internal/wal"
 )
 
 // loadDotEnv loads the nearest .env found in the working directory or any
@@ -66,7 +72,37 @@ func main() {
 		log.Error("seed admin", "err", err)
 		os.Exit(1)
 	}
-	handler := api.NewRouter(&api.Server{DB: g, Tokens: auth.NewTokenManager(cfg.JWTSecret)})
+
+	w, err := wal.Open(filepath.Join(cfg.DataDir, "wal"), time.Duration(cfg.WALSyncMS)*time.Millisecond)
+	if err != nil {
+		log.Error("wal open", "err", err)
+		os.Exit(1)
+	}
+	store := chunk.NewLocalStore(filepath.Join(cfg.DataDir, "chunks"))
+	ix := index.New(g)
+	ecfg := ingest.DefaultEngineConfig()
+	ecfg.Log = log
+	eng := ingest.NewEngine(w, ix, store, ecfg)
+	if err := eng.Recover(); err != nil {
+		log.Error("wal recover", "err", err)
+		os.Exit(1)
+	}
+	limits := ingest.DefaultLimits()
+	limits.MaxStreamsPerKey = cfg.MaxStreams
+	limits.DefaultLinesPerSec = cfg.RateLines
+	limits.BytesPerSec = cfg.RateBytes
+
+	bg, stopBG := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); eng.Run(bg) }()
+	jan := &retention.Janitor{Index: ix, Store: store, Days: cfg.RetentionDays, Log: log}
+	go func() { defer wg.Done(); jan.Run(bg, time.Hour) }()
+
+	handler := api.NewRouter(&api.Server{
+		DB: g, Tokens: auth.NewTokenManager(cfg.JWTSecret),
+		Ingest: ingest.NewHandler(g, eng, ix, limits),
+	})
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		log.Info("listening", "addr", cfg.HTTPAddr)
@@ -80,5 +116,11 @@ func main() {
 	<-ctx.Done()
 	sctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(sctx)
+	_ = srv.Shutdown(sctx) // stop accepting and drain in-flight pushes
+	stopBG()
+	wg.Wait()
+	if err := eng.Close(); err != nil { // flush head chunks, close WAL
+		log.Error("shutdown flush", "err", err)
+		os.Exit(1)
+	}
 }
