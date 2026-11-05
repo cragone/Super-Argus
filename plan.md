@@ -262,12 +262,13 @@ One codebase in `app/`, using Expo Router. Build web with `npx expo export --pla
 
 ## 12. Phases and acceptance criteria
 
-**Phase 0: Skeleton**
+**Phase 0: Skeleton** ✅ *complete*
 - Go module, repo layout, config loader, slog, chi server, `/healthz`
 - GORM connection (SQLite, WAL mode, `busy_timeout`), goose runner that applies embedded migrations on boot
 - *Done when:* `go run ./cmd/argus` boots, migrations apply, `/healthz` returns 200, tests pass in CI
+- *Status:* done. Follow-up: CI workflow and `golangci-lint` are not set up yet.
 
-**Phase 1: Models, auth, API keys**
+**Phase 1: Models, auth, API keys** ✅ *complete*
 - Migrations + models for User, APIKey, Setting
 - Login, JWT, refresh, role middleware, admin seed, API key create/revoke
 - *Done when:* admin can log in and mint an API key; unauthorized requests get 401/403; unit tests cover hashing and middleware
