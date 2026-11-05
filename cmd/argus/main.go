@@ -8,8 +8,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/joho/godotenv"
 
 	"github.com/cragone/Super-Argus/internal/api"
 	"github.com/cragone/Super-Argus/internal/auth"
@@ -17,8 +20,30 @@ import (
 	"github.com/cragone/Super-Argus/internal/db"
 )
 
+// loadDotEnv loads the nearest .env found in the working directory or any
+// parent. Variables already set in the environment are not overridden.
+func loadDotEnv() {
+	dir, err := os.Getwd()
+	if err != nil {
+		return
+	}
+	for {
+		p := filepath.Join(dir, ".env")
+		if _, err := os.Stat(p); err == nil {
+			_ = godotenv.Load(p)
+			return
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return
+		}
+		dir = parent
+	}
+}
+
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	loadDotEnv()
 	cfg, err := config.Load()
 	if err != nil {
 		log.Error("config", "err", err)
