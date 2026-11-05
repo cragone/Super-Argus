@@ -1,6 +1,8 @@
 # Super-Agrus
 Open Source Logging tool
 
+> **Want something to watch?** `testapp/` is a small gin + GORM service that ships its logs to Argus, with a traffic generator and a ready-made dashboard. See [testapp/README.md](testapp/README.md).
+
 ## Running
 
 ```

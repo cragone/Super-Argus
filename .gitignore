@@ -38,3 +38,8 @@ data/
 # built web UI (npm run build:web in app/)
 internal/webui/dist/*
 !internal/webui/dist/.gitkeep
+
+# test app runtime files
+testapp/*.db
+testapp/*.db-*
+testapp/testapp.exe
