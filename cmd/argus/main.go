@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cragone/Super-Argus/internal/api"
+	"github.com/cragone/Super-Argus/internal/auth"
 	"github.com/cragone/Super-Argus/internal/config"
 	"github.com/cragone/Super-Argus/internal/db"
 )
@@ -36,7 +37,12 @@ func main() {
 		log.Error("migrate", "err", err)
 		os.Exit(1)
 	}
-	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: api.NewRouter(), ReadHeaderTimeout: 10 * time.Second}
+	if err := auth.SeedAdmin(g, cfg.AdminEmail, cfg.AdminPassword, log); err != nil {
+		log.Error("seed admin", "err", err)
+		os.Exit(1)
+	}
+	handler := api.NewRouter(&api.Server{DB: g, Tokens: auth.NewTokenManager(cfg.JWTSecret)})
+	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		log.Info("listening", "addr", cfg.HTTPAddr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
