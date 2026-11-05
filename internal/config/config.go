@@ -23,6 +23,9 @@ type Config struct {
 	MaxStreams    int
 	RateLines     int // default per-key lines/sec
 	RateBytes     int // per-key bytes/sec
+	QueryMaxRange time.Duration
+	QueryMaxBytes int64
+	QueryConc     int // concurrent queries per user
 }
 
 func env(k, def string) string {
@@ -60,6 +63,11 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	c.QueryTimeout = d
+	if c.QueryMaxRange, err = time.ParseDuration(env("ARGUS_QUERY_MAX_RANGE", "168h")); err != nil {
+		return nil, err
+	}
+	c.QueryMaxBytes = int64(envInt("ARGUS_QUERY_MAX_BYTES_MB", 4096)) << 20
+	c.QueryConc = envInt("ARGUS_QUERY_CONCURRENCY", 4)
 	c.DBDSN = env("ARGUS_DB_DSN", "sqlite:"+filepath.Join(c.DataDir, "argus.db"))
 	if c.JWTSecret == "" {
 		return nil, errors.New("ARGUS_JWT_SECRET is required")

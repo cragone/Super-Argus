@@ -42,3 +42,34 @@ Head chunks flush to disk at ~1 MB or ~1 h of age, and on graceful shutdown. Chu
 ```
 ARGUS_LOAD_SECONDS=600 ARGUS_LOAD_RATE=2000 go test ./internal/ingest -run TestLoad -timeout 20m -v
 ```
+
+## Querying (Phase 3)
+
+All query routes need `Authorization: Bearer <access token>` (any role).
+
+- `GET /api/v1/query/range?query=&start=&end=&limit=&direction=`
+  - `start` (inclusive) and `end` (exclusive) are required: RFC3339 or unix nanoseconds.
+  - `direction` is `backward` (newest first, default) or `forward`. `limit` defaults to 1,000 and is capped at 5,000.
+  - Returns `{"entries":[{"ts","stream","line","fields"}],"streams":{id:{labels}},"stats":{...}}`. `ts` and stream ids are strings because they exceed JavaScript's safe integer range. `fields` is present when the query has a `| json` or `| logfmt` stage.
+- `GET /api/v1/labels` and `GET /api/v1/labels/{name}/values` (optional `start`/`end`) feed autocomplete.
+
+### ArgusQL
+```
+{service="api", env=~"prod|staging"} |= "timeout" != "healthcheck" | json | level="error" | status>=500
+```
+- Selector matchers: `=` `!=` `=~` `!~`. At least one must not match an empty value (`{service=~".*"}` is rejected). Regexes are RE2 and anchored.
+- Line filters: `|=` contains, `!=` does not contain, `|~` regex, `!~` negated regex.
+- Parsers: `| json` (nested keys are joined with `_`, so `req.id` becomes `req_id`) and `| logfmt`.
+- Field filters after a parser (or on stream labels): `=` `!=` `=~` `!~` against strings or numbers, and `>` `>=` `<` `<=` against numbers. A missing field behaves like `""`; numeric comparisons on missing or non-numeric fields never match.
+- In double-quoted strings write `"\\d+"` to get a backslash, or use a backtick string: `` `\d+` ``.
+- Metric queries (`count_over_time`, `sum by`, `topk`) arrive in Phase 6.
+
+### Query limits
+Required time range; at most `ARGUS_QUERY_MAX_RANGE` (default `168h`); `ARGUS_QUERY_TIMEOUT` (default `30s`); at most `ARGUS_QUERY_MAX_BYTES_MB` (default 4096) of raw log data scanned; `ARGUS_QUERY_CONCURRENCY` (default 4) simultaneous queries per user. Errors: `400 bad_query`, `422 query_limit`, `429 too_many_queries`, `504 query_timeout`.
+
+### How a query runs
+Streams are found through the indexed `stream_labels` table, then chunks overlapping the range are selected from the `chunks` table. Chunk files are scanned in parallel (one worker per CPU), skipping blocks outside the range, and merged with the not-yet-flushed head chunks. Results are bounded top-N, and in `backward` mode chunks are visited newest-first and skipped once they cannot improve a full result. Results are totally ordered (time, stream, line), so they are deterministic.
+
+On a 12-core dev machine with 10M lines (1.25 GB raw, 100 streams, 1,000 chunks) and a 1h window: selector plus `|=` answers in 40-70 ms; a worst-case full scan of every line (`|= "no-such-text"` across all streams) takes ~0.6 s. Reproduce with `ARGUS_QUERY_LINES=10000000 go test ./internal/query -run LargeDataset -v`.
+
+Golden files live in `internal/query/testdata`; refresh them with `go test ./internal/query -update` and review the diff.

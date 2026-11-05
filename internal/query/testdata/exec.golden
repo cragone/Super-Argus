@@ -1,0 +1,135 @@
+query: {service="api", env="prod"}  [0,60) limit=5 backward
+12:00:59 api/prod {"level":"error","status":700,"route":"/v1/item/4","msg":"handled request 59"}
+12:00:58 api/prod {"level":"warn","status":600,"route":"/v1/item/3","msg":"handled request 58"}
+12:00:57 api/prod {"level":"info","status":500,"route":"/v1/item/2","msg":"handled request 57"} timeout
+12:00:56 api/prod {"level":"info","status":400,"route":"/v1/item/1","msg":"handled request 56"}
+12:00:55 api/prod {"level":"error","status":300,"route":"/v1/item/0","msg":"handled request 55"}
+
+query: {service="api", env="prod"}  [0,60) limit=5 forward
+12:00:00 api/prod {"level":"info","status":200,"route":"/v1/item/0","msg":"handled request 0"}
+12:00:01 api/prod {"level":"info","status":300,"route":"/v1/item/1","msg":"handled request 1"}
+12:00:02 api/prod {"level":"warn","status":400,"route":"/v1/item/2","msg":"handled request 2"}
+12:00:03 api/prod {"level":"error","status":500,"route":"/v1/item/3","msg":"handled request 3"}
+12:00:04 api/prod {"level":"info","status":600,"route":"/v1/item/4","msg":"handled request 4"}
+
+query: {service="api", env="prod"}  [25,35) limit=100 forward
+12:00:25 api/prod {"level":"info","status":300,"route":"/v1/item/0","msg":"handled request 25"}
+12:00:26 api/prod {"level":"warn","status":400,"route":"/v1/item/1","msg":"handled request 26"}
+12:00:27 api/prod {"level":"error","status":500,"route":"/v1/item/2","msg":"handled request 27"} timeout
+12:00:28 api/prod {"level":"info","status":600,"route":"/v1/item/3","msg":"handled request 28"}
+12:00:29 api/prod {"level":"info","status":700,"route":"/v1/item/4","msg":"handled request 29"}
+12:00:30 api/prod {"level":"warn","status":200,"route":"/v1/item/0","msg":"handled request 30"}
+12:00:31 api/prod {"level":"error","status":300,"route":"/v1/item/1","msg":"handled request 31"}
+12:00:32 api/prod {"level":"info","status":400,"route":"/v1/item/2","msg":"handled request 32"}
+12:00:33 api/prod {"level":"info","status":500,"route":"/v1/item/3","msg":"handled request 33"}
+12:00:34 api/prod {"level":"warn","status":600,"route":"/v1/item/4","msg":"handled request 34"}
+
+query: {service="api", env="prod"} |= "timeout"  [0,60) limit=100 forward
+12:00:07 api/prod {"level":"error","status":300,"route":"/v1/item/2","msg":"handled request 7"} timeout
+12:00:17 api/prod {"level":"info","status":700,"route":"/v1/item/2","msg":"handled request 17"} timeout
+12:00:27 api/prod {"level":"error","status":500,"route":"/v1/item/2","msg":"handled request 27"} timeout
+12:00:37 api/prod {"level":"info","status":300,"route":"/v1/item/2","msg":"handled request 37"} timeout
+12:00:47 api/prod {"level":"error","status":700,"route":"/v1/item/2","msg":"handled request 47"} timeout
+12:00:57 api/prod {"level":"info","status":500,"route":"/v1/item/2","msg":"handled request 57"} timeout
+
+query: {service="api", env="prod"} |= "timeout" != "request 7"  [0,60) limit=100 forward
+12:00:17 api/prod {"level":"info","status":700,"route":"/v1/item/2","msg":"handled request 17"} timeout
+12:00:27 api/prod {"level":"error","status":500,"route":"/v1/item/2","msg":"handled request 27"} timeout
+12:00:37 api/prod {"level":"info","status":300,"route":"/v1/item/2","msg":"handled request 37"} timeout
+12:00:47 api/prod {"level":"error","status":700,"route":"/v1/item/2","msg":"handled request 47"} timeout
+12:00:57 api/prod {"level":"info","status":500,"route":"/v1/item/2","msg":"handled request 57"} timeout
+
+query: {service=~"api|web", env="dev"} |~ "(request|page) (1|2)\\d\\b"  [0,60) limit=100 forward
+12:00:10 api/dev {"level":"warn","status":600,"route":"/v1/item/0","msg":"handled request 10"}
+12:00:10 web/dev level=warn status=600 msg="page 10 rendered" path=/p/1
+12:00:11 api/dev {"level":"error","status":700,"route":"/v1/item/1","msg":"handled request 11"}
+12:00:11 web/dev level=error status=700 msg="page 11 rendered" path=/p/2
+12:00:12 api/dev {"level":"info","status":200,"route":"/v1/item/2","msg":"handled request 12"}
+12:00:12 web/dev level=info status=200 msg="page 12 rendered" path=/p/0
+12:00:13 api/dev {"level":"info","status":300,"route":"/v1/item/3","msg":"handled request 13"}
+12:00:13 web/dev level=info status=300 msg="page 13 rendered" path=/p/1
+12:00:14 api/dev {"level":"warn","status":400,"route":"/v1/item/4","msg":"handled request 14"}
+12:00:14 web/dev level=warn status=400 msg="page 14 rendered" path=/p/2
+12:00:15 api/dev {"level":"error","status":500,"route":"/v1/item/0","msg":"handled request 15"}
+12:00:15 web/dev level=error status=500 msg="page 15 rendered" path=/p/0
+12:00:16 api/dev {"level":"info","status":600,"route":"/v1/item/1","msg":"handled request 16"}
+12:00:16 web/dev level=info status=600 msg="page 16 rendered" path=/p/1
+12:00:17 api/dev {"level":"info","status":700,"route":"/v1/item/2","msg":"handled request 17"} timeout
+12:00:17 web/dev level=info status=700 msg="page 17 rendered" path=/p/2 timeout
+12:00:18 api/dev {"level":"warn","status":200,"route":"/v1/item/3","msg":"handled request 18"}
+12:00:18 web/dev level=warn status=200 msg="page 18 rendered" path=/p/0
+12:00:19 api/dev {"level":"error","status":300,"route":"/v1/item/4","msg":"handled request 19"}
+12:00:19 web/dev level=error status=300 msg="page 19 rendered" path=/p/1
+12:00:20 api/dev {"level":"info","status":400,"route":"/v1/item/0","msg":"handled request 20"}
+12:00:20 web/dev level=info status=400 msg="page 20 rendered" path=/p/2
+12:00:21 api/dev {"level":"info","status":500,"route":"/v1/item/1","msg":"handled request 21"}
+12:00:21 web/dev level=info status=500 msg="page 21 rendered" path=/p/0
+12:00:22 api/dev {"level":"warn","status":600,"route":"/v1/item/2","msg":"handled request 22"}
+12:00:22 web/dev level=warn status=600 msg="page 22 rendered" path=/p/1
+12:00:23 api/dev {"level":"error","status":700,"route":"/v1/item/3","msg":"handled request 23"}
+12:00:23 web/dev level=error status=700 msg="page 23 rendered" path=/p/2
+12:00:24 api/dev {"level":"info","status":200,"route":"/v1/item/4","msg":"handled request 24"}
+12:00:24 web/dev level=info status=200 msg="page 24 rendered" path=/p/0
+12:00:25 api/dev {"level":"info","status":300,"route":"/v1/item/0","msg":"handled request 25"}
+12:00:25 web/dev level=info status=300 msg="page 25 rendered" path=/p/1
+12:00:26 api/dev {"level":"warn","status":400,"route":"/v1/item/1","msg":"handled request 26"}
+12:00:26 web/dev level=warn status=400 msg="page 26 rendered" path=/p/2
+12:00:27 api/dev {"level":"error","status":500,"route":"/v1/item/2","msg":"handled request 27"} timeout
+12:00:27 web/dev level=error status=500 msg="page 27 rendered" path=/p/0 timeout
+12:00:28 api/dev {"level":"info","status":600,"route":"/v1/item/3","msg":"handled request 28"}
+12:00:28 web/dev level=info status=600 msg="page 28 rendered" path=/p/1
+12:00:29 api/dev {"level":"info","status":700,"route":"/v1/item/4","msg":"handled request 29"}
+12:00:29 web/dev level=info status=700 msg="page 29 rendered" path=/p/2
+
+query: {service="api"} | json | level="error" | status>=500  [0,24) limit=100 forward
+12:00:03 api/dev {"level":"error","status":500,"route":"/v1/item/3","msg":"handled request 3"}  {level=error, msg=handled request 3, route=/v1/item/3, status=500}
+12:00:03 api/prod {"level":"error","status":500,"route":"/v1/item/3","msg":"handled request 3"}  {level=error, msg=handled request 3, route=/v1/item/3, status=500}
+12:00:11 api/dev {"level":"error","status":700,"route":"/v1/item/1","msg":"handled request 11"}  {level=error, msg=handled request 11, route=/v1/item/1, status=700}
+12:00:11 api/prod {"level":"error","status":700,"route":"/v1/item/1","msg":"handled request 11"}  {level=error, msg=handled request 11, route=/v1/item/1, status=700}
+12:00:15 api/dev {"level":"error","status":500,"route":"/v1/item/0","msg":"handled request 15"}  {level=error, msg=handled request 15, route=/v1/item/0, status=500}
+12:00:15 api/prod {"level":"error","status":500,"route":"/v1/item/0","msg":"handled request 15"}  {level=error, msg=handled request 15, route=/v1/item/0, status=500}
+12:00:23 api/dev {"level":"error","status":700,"route":"/v1/item/3","msg":"handled request 23"}  {level=error, msg=handled request 23, route=/v1/item/3, status=700}
+12:00:23 api/prod {"level":"error","status":700,"route":"/v1/item/3","msg":"handled request 23"}  {level=error, msg=handled request 23, route=/v1/item/3, status=700}
+
+query: {service="api", env="prod"} | json | route="/v1/item/3" | status!=200  [0,20) limit=100 forward
+12:00:03 api/prod {"level":"error","status":500,"route":"/v1/item/3","msg":"handled request 3"}  {level=error, msg=handled request 3, route=/v1/item/3, status=500}
+12:00:08 api/prod {"level":"info","status":400,"route":"/v1/item/3","msg":"handled request 8"}  {level=info, msg=handled request 8, route=/v1/item/3, status=400}
+12:00:13 api/prod {"level":"info","status":300,"route":"/v1/item/3","msg":"handled request 13"}  {level=info, msg=handled request 13, route=/v1/item/3, status=300}
+
+query: {service="web", env="prod"} | logfmt | level="warn" | path=~"/p/[01]"  [0,30) limit=100 forward
+12:00:06 web/prod level=warn status=200 msg="page 6 rendered" path=/p/0  {level=warn, msg=page 6 rendered, path=/p/0, status=200}
+12:00:10 web/prod level=warn status=600 msg="page 10 rendered" path=/p/1  {level=warn, msg=page 10 rendered, path=/p/1, status=600}
+12:00:18 web/prod level=warn status=200 msg="page 18 rendered" path=/p/0  {level=warn, msg=page 18 rendered, path=/p/0, status=200}
+12:00:22 web/prod level=warn status=600 msg="page 22 rendered" path=/p/1  {level=warn, msg=page 22 rendered, path=/p/1, status=600}
+
+query: {service="web", env="prod"} | logfmt | status>=500 | status<600  [0,12) limit=100 forward
+12:00:03 web/prod level=error status=500 msg="page 3 rendered" path=/p/0  {level=error, msg=page 3 rendered, path=/p/0, status=500}
+12:00:09 web/prod level=info status=500 msg="page 9 rendered" path=/p/0  {level=info, msg=page 9 rendered, path=/p/0, status=500}
+
+query: {service="worker", env="dev"} |= "level=error"  [0,20) limit=100 backward
+12:00:19 worker/dev job 19 finished level=error
+12:00:15 worker/dev job 15 finished level=error
+12:00:11 worker/dev job 11 finished level=error
+12:00:07 worker/dev job 7 finished level=error timeout
+12:00:03 worker/dev job 3 finished level=error
+
+query: {env!="dev", service="worker"} |= "timeout"  [0,60) limit=100 forward
+12:00:07 worker/prod job 7 finished level=error timeout
+12:00:17 worker/prod job 17 finished level=info timeout
+12:00:27 worker/prod job 27 finished level=error timeout
+12:00:37 worker/prod job 37 finished level=info timeout
+12:00:47 worker/prod job 47 finished level=error timeout
+12:00:57 worker/prod job 57 finished level=info timeout
+
+query: {service=~"web|worker", env!~"d.*"} | logfmt | level="error"  [0,12) limit=100 forward
+12:00:03 worker/prod job 3 finished level=error  {3=, finished=, job=, level=error}
+12:00:03 web/prod level=error status=500 msg="page 3 rendered" path=/p/0  {level=error, msg=page 3 rendered, path=/p/0, status=500}
+12:00:07 worker/prod job 7 finished level=error timeout  {7=, finished=, job=, level=error, timeout=}
+12:00:07 web/prod level=error status=300 msg="page 7 rendered" path=/p/1 timeout  {level=error, msg=page 7 rendered, path=/p/1, status=300, timeout=}
+12:00:11 worker/prod job 11 finished level=error  {11=, finished=, job=, level=error}
+12:00:11 web/prod level=error status=700 msg="page 11 rendered" path=/p/2  {level=error, msg=page 11 rendered, path=/p/2, status=700}
+
+query: {service="nope"}  [0,60) limit=100 forward
+
+query: {service="api", env="prod"} | json | level="fatal"  [0,60) limit=100 forward
+

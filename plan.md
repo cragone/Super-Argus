@@ -279,10 +279,11 @@ One codebase in `app/`, using Expo Router. Build web with `npx expo export --pla
 - *Done when:* a load test pushes 2,000 lines/sec for 10 minutes with no loss; kill -9 mid-run then restart loses at most the WAL sync window; chunks appear on disk and in the `Chunk` table; retention deletes old data
 - *Status:* built and tested (`go test -race ./...`). Load test (`TestLoad`) verified at 2,000 lines/s for 30s with zero loss; the full 10-minute run still needs to be done. A real `kill -9` of the binary after an acknowledged 1,000-line push recovered all 1,000 lines. Replay is at-least-once (see README). `Stream` has an extra `api_key_id` column to enforce the per-key stream limit. Chunk files are read whole via `Store.Get` (S3-friendly) and block-skipped by time.
 
-**Phase 3: Query engine**
+**Phase 3: Query engine** ✅ *complete (see status)*
 - Lexer, parser, planner, executor for selectors, line filters, `json`/`logfmt`, field filters
 - `/query/range`, `/labels`, `/labels/{name}/values`
 - *Done when:* golden-file tests pass for parser and executor; a 10M-line dataset answers a selector + `|=` query over 1h in under 2s on a dev laptop; limits and timeouts verified
+- *Status:* built and tested with `-race`. Parser and executor are covered by golden files; limits (range, lines, bytes, timeout, per-user concurrency) have tests; 10M lines scan in ~0.6 s worst case (see README). Added a stress test that queries while flushing and found/fixed a real duplicate-lines race (head chunk IDs now equal their chunk IDs so queries can dedupe). Not included: `/series`, metric functions (Phase 6). `start`/`end` are required on every query.
 
 **Phase 4: Client foundation + Explore**
 - Expo app, Expo Router, theming, API client (generated from OpenAPI), login flow
