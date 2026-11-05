@@ -7,8 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cragone/Super-Argus/internal/index"
 	"github.com/cragone/Super-Argus/internal/ingest"
 	"github.com/cragone/Super-Argus/internal/query"
+	"github.com/cragone/Super-Argus/internal/tail"
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v3"
@@ -30,6 +32,7 @@ func TestOpenAPIMatchesRoutes(t *testing.T) {
 
 	e := newEnv(t)
 	e.srv.Ingest, e.srv.Query = &ingest.Handler{}, &query.Service{}
+	e.srv.Tail, e.srv.Index = tail.New(tail.DefaultConfig()), index.New(e.srv.DB)
 	r := NewRouter(e.srv).(chi.Routes)
 	got := map[string]bool{}
 	require.NoError(t, chi.Walk(r, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {

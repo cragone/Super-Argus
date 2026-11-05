@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/cragone/Super-Argus/internal/auth"
 	"github.com/cragone/Super-Argus/internal/models"
@@ -15,6 +16,8 @@ type ctxKey struct{}
 type Principal struct {
 	UserID string
 	Role   string
+	// Expires is when the access token stops being valid (long-lived streams end then).
+	Expires time.Time
 }
 
 // PrincipalFrom returns the authenticated principal, if any.
@@ -37,7 +40,7 @@ func (s *Server) Authenticate(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "unauthorized", "invalid or expired token")
 			return
 		}
-		ctx := context.WithValue(r.Context(), ctxKey{}, Principal{UserID: c.Subject, Role: c.Role})
+		ctx := context.WithValue(r.Context(), ctxKey{}, Principal{UserID: c.Subject, Role: c.Role, Expires: c.ExpiresAt.Time})
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

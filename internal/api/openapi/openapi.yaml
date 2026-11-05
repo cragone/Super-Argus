@@ -142,6 +142,24 @@ paths:
         '422': { $ref: '#/components/responses/Error' }
         '429': { $ref: '#/components/responses/Error' }
         '504': { $ref: '#/components/responses/Error' }
+  /tail:
+    get:
+      operationId: tailStream
+      summary: Live tail (server-sent events)
+      description: |
+        Streams matching lines as they are ingested. Events: `ready`, `entry` (JSON: ts, stream, labels, line, fields),
+        `dropped` (`{"count":N}`: the client was too slow), `expired` (access token ended; reconnect with a new one).
+        Lines starting with `:` are heartbeats. Each user may hold only a few streams open (429 otherwise).
+      parameters:
+        - { name: query, in: query, required: true, schema: { type: string }, description: ArgusQL log query (stream selector required) }
+      responses:
+        '200':
+          description: Event stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
   /labels:
     get:
       operationId: listLabels

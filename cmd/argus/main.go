@@ -24,6 +24,7 @@ import (
 	"github.com/cragone/Super-Argus/internal/ingest"
 	"github.com/cragone/Super-Argus/internal/query"
 	"github.com/cragone/Super-Argus/internal/retention"
+	"github.com/cragone/Super-Argus/internal/tail"
 	"github.com/cragone/Super-Argus/internal/wal"
 	"github.com/cragone/Super-Argus/internal/webui"
 )
@@ -85,6 +86,8 @@ func main() {
 	ecfg := ingest.DefaultEngineConfig()
 	ecfg.Log = log
 	eng := ingest.NewEngine(w, ix, store, ecfg)
+	hub := tail.New(tail.Config{PerUser: cfg.TailPerUser, Max: cfg.TailMax, Buffer: tail.DefaultConfig().Buffer})
+	eng.SetPublisher(hub)
 	if err := eng.Recover(); err != nil {
 		log.Error("wal recover", "err", err)
 		os.Exit(1)
@@ -109,6 +112,8 @@ func main() {
 		Ingest:      ingest.NewHandler(g, eng, ix, limits),
 		Query:       query.NewService(g, store, eng, ql),
 		Web:         webui.Handler(),
+		Tail:        hub,
+		Index:       ix,
 		CORSOrigins: api.ParseOrigins(cfg.CORSOrigins),
 	})
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
