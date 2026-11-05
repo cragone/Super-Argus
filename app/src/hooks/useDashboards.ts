@@ -2,7 +2,12 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 
 import { api, unwrap, type Panel } from '@/api/client';
 import { useSession } from '@/auth/session';
+import { createLimiter, retryOn429 } from '@/lib/limiter';
 import { resolveRange, type TimeRange } from '@/lib/time';
+
+// Every panel of a dashboard queries at once; keep a few in flight so we stay under the
+// server's per-user concurrency cap, and retry the occasional 429 from other open tabs.
+const panelQueries = createLimiter(3);
 
 export type PanelType = 'logs' | 'timeseries' | 'top_n' | 'stat';
 
@@ -117,15 +122,17 @@ export function usePanelData(panel: Panel, range: TimeRange, refreshMs: number) 
     retry: false,
     placeholderData: keepPreviousData,
     refetchInterval: refreshMs > 0 ? refreshMs : false,
-    queryFn: async () => {
-      const r = resolveRange(range);
-      if ('error' in r) throw new Error(r.error);
-      if (panel.type === 'logs') {
-        const res = unwrap(await api.GET('/query/range', { params: { query: { query: panel.query, start: r.start, end: r.end, direction: 'backward', limit: 50 } } }));
-        return { kind: 'logs' as const, logs: res };
-      }
-      const res = unwrap(await api.GET('/query/metric', { params: { query: { query: panel.query, start: r.start, end: r.end, ...(panel.step ? { step: panel.step } : {}) } } }));
-      return { kind: 'metric' as const, metric: res };
-    },
+    queryFn: () => panelQueries(() => retryOn429(() => fetchPanel(panel, range))),
   });
+}
+
+async function fetchPanel(panel: Panel, range: TimeRange) {
+  const r = resolveRange(range);
+  if ('error' in r) throw new Error(r.error);
+  if (panel.type === 'logs') {
+    const res = unwrap(await api.GET('/query/range', { params: { query: { query: panel.query, start: r.start, end: r.end, direction: 'backward', limit: 50 } } }));
+    return { kind: 'logs' as const, logs: res };
+  }
+  const res = unwrap(await api.GET('/query/metric', { params: { query: { query: panel.query, start: r.start, end: r.end, ...(panel.step ? { step: panel.step } : {}) } } }));
+  return { kind: 'metric' as const, metric: res };
 }
