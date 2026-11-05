@@ -4,6 +4,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/cragone/Super-Argus/internal/auth"
 	"github.com/cragone/Super-Argus/internal/ingest"
@@ -22,12 +23,16 @@ type Server struct {
 	Ingest *ingest.Handler
 	// Query serves the query routes. Nil disables them.
 	Query *query.Service
+	// Web serves the embedded web UI for non-API paths. Nil disables it.
+	Web http.Handler
+	// CORSOrigins lists browser origins allowed to call the API cross-origin.
+	CORSOrigins []string
 }
 
 // NewRouter builds the HTTP router.
 func NewRouter(s *Server) http.Handler {
 	r := chi.NewRouter()
-	r.Use(middleware.RequestID, middleware.Recoverer)
+	r.Use(middleware.RequestID, middleware.Recoverer, CORS(s.CORSOrigins))
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -35,6 +40,8 @@ func NewRouter(s *Server) http.Handler {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/login", s.login)
 		r.Post("/auth/refresh", s.refresh)
+		r.Post("/auth/logout", s.logout)
+		r.Get("/openapi.yaml", serveOpenAPI)
 		if s.Ingest != nil {
 			r.Post("/ingest/push", s.Ingest.Push)
 		}
@@ -58,6 +65,13 @@ func NewRouter(s *Server) http.Handler {
 				r.Delete("/api-keys/{id}", s.revokeAPIKey)
 			})
 		})
+	})
+	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
+		if s.Web == nil || strings.HasPrefix(req.URL.Path, "/api/") || req.URL.Path == "/healthz" {
+			writeError(w, http.StatusNotFound, "not_found", "no such route")
+			return
+		}
+		s.Web.ServeHTTP(w, req)
 	})
 	return r
 }

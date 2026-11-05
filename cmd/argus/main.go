@@ -17,14 +17,15 @@ import (
 
 	"github.com/cragone/Super-Argus/internal/api"
 	"github.com/cragone/Super-Argus/internal/auth"
-	"github.com/cragone/Super-Argus/internal/config"
 	"github.com/cragone/Super-Argus/internal/chunk"
+	"github.com/cragone/Super-Argus/internal/config"
 	"github.com/cragone/Super-Argus/internal/db"
 	"github.com/cragone/Super-Argus/internal/index"
 	"github.com/cragone/Super-Argus/internal/ingest"
 	"github.com/cragone/Super-Argus/internal/query"
 	"github.com/cragone/Super-Argus/internal/retention"
 	"github.com/cragone/Super-Argus/internal/wal"
+	"github.com/cragone/Super-Argus/internal/webui"
 )
 
 // loadDotEnv loads the nearest .env found in the working directory or any
@@ -105,8 +106,10 @@ func main() {
 
 	handler := api.NewRouter(&api.Server{
 		DB: g, Tokens: auth.NewTokenManager(cfg.JWTSecret),
-		Ingest: ingest.NewHandler(g, eng, ix, limits),
-		Query:  query.NewService(g, store, eng, ql),
+		Ingest:      ingest.NewHandler(g, eng, ix, limits),
+		Query:       query.NewService(g, store, eng, ql),
+		Web:         webui.Handler(),
+		CORSOrigins: api.ParseOrigins(cfg.CORSOrigins),
 	})
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
