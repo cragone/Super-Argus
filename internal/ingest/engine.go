@@ -1,0 +1,243 @@
+// Package ingest accepts pushed log lines: validation, limits, the write path
+// (WAL -> head chunks -> chunk files) and the HTTP push handler.
+package ingest
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"sync"
+	"time"
+
+	"github.com/cragone/Super-Argus/internal/chunk"
+	"github.com/cragone/Super-Argus/internal/index"
+	"github.com/cragone/Super-Argus/internal/models"
+	"github.com/cragone/Super-Argus/internal/wal"
+	"github.com/google/uuid"
+)
+
+// EngineConfig tunes head-chunk flushing.
+type EngineConfig struct {
+	MaxHeadBytes int           // flush a head once it holds this much raw data (~1 MB)
+	MaxHeadAge   time.Duration // flush a head this long after its first line (~1h)
+	TickEvery    time.Duration // how often Run checks heads and persists last_seen
+	Now          func() time.Time
+	Log          *slog.Logger
+}
+
+// DefaultEngineConfig returns the production defaults.
+func DefaultEngineConfig() EngineConfig {
+	return EngineConfig{MaxHeadBytes: 1 << 20, MaxHeadAge: time.Hour, TickEvery: time.Second}
+}
+
+// Engine owns the write path. Append is durable once it returns (subject to
+// the WAL sync interval); flushed heads become chunk files plus index rows.
+type Engine struct {
+	cfg   EngineConfig
+	wal   *wal.WAL
+	ix    *index.Index
+	store chunk.Store
+
+	mu       sync.Mutex
+	heads    map[uint64]*chunk.Head
+	flushing map[*chunk.Head]struct{}
+}
+
+// NewEngine builds an engine. Call Recover before accepting traffic.
+func NewEngine(w *wal.WAL, ix *index.Index, store chunk.Store, cfg EngineConfig) *Engine {
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+	if cfg.Log == nil {
+		cfg.Log = slog.Default()
+	}
+	if cfg.MaxHeadBytes <= 0 {
+		cfg.MaxHeadBytes = 1 << 20
+	}
+	if cfg.MaxHeadAge <= 0 {
+		cfg.MaxHeadAge = time.Hour
+	}
+	if cfg.TickEvery <= 0 {
+		cfg.TickEvery = time.Second
+	}
+	return &Engine{cfg: cfg, wal: w, ix: ix, store: store,
+		heads: map[uint64]*chunk.Head{}, flushing: map[*chunk.Head]struct{}{}}
+}
+
+// Recover replays the WAL left by a previous run into chunk files, then drops
+// the replayed segments. A crash between writing chunks and dropping segments
+// can duplicate lines on the next start (at-least-once).
+func (e *Engine) Recover() error {
+	e.mu.Lock()
+	st, err := e.wal.Replay(func(seg uint64, r wal.Record) {
+		e.addLocked(seg, []wal.Record{r})
+	})
+	e.mu.Unlock()
+	if err != nil {
+		return fmt.Errorf("wal replay: %w", err)
+	}
+	if st.Records > 0 || st.Torn > 0 {
+		e.cfg.Log.Info("wal replayed", "records", st.Records, "torn_segments", st.Torn)
+	}
+	if err := e.FlushAll(); err != nil {
+		return err
+	}
+	return e.checkpoint() // also drops replayed segments when there was nothing to flush
+}
+
+// Append writes recs to the WAL and then to the in-memory heads.
+func (e *Engine) Append(recs []wal.Record) error {
+	if len(recs) == 0 {
+		return nil
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	seg, err := e.wal.Append(recs)
+	if err != nil {
+		return err
+	}
+	e.addLocked(seg, recs)
+	return nil
+}
+
+func (e *Engine) addLocked(seg uint64, recs []wal.Record) {
+	now := e.cfg.Now()
+	for _, r := range recs {
+		h := e.heads[r.StreamID]
+		if h == nil {
+			h = &chunk.Head{StreamID: r.StreamID}
+			e.heads[r.StreamID] = h
+		}
+		h.Add(seg, now, chunk.Entry{TS: r.TS, Line: r.Line})
+	}
+}
+
+// HeadLines returns the number of unflushed lines (for tests and metrics).
+func (e *Engine) HeadLines() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	n := 0
+	for _, h := range e.heads {
+		n += len(h.Entries)
+	}
+	return n
+}
+
+// Tick flushes heads that are full or old, persists last_seen and trims the WAL.
+func (e *Engine) Tick() error {
+	now := e.cfg.Now()
+	err := e.flush(func(h *chunk.Head) bool {
+		return h.RawBytes >= e.cfg.MaxHeadBytes || now.Sub(h.Created) >= e.cfg.MaxHeadAge
+	})
+	return errors.Join(err, e.ix.FlushSeen())
+}
+
+// FlushAll flushes every head (used on shutdown and after recovery).
+func (e *Engine) FlushAll() error {
+	err := e.flush(func(*chunk.Head) bool { return true })
+	return errors.Join(err, e.ix.FlushSeen())
+}
+
+func (e *Engine) flush(pred func(*chunk.Head) bool) error {
+	e.mu.Lock()
+	var taken []*chunk.Head
+	for id, h := range e.heads {
+		if pred(h) {
+			taken = append(taken, h)
+			delete(e.heads, id)
+			e.flushing[h] = struct{}{}
+		}
+	}
+	e.mu.Unlock()
+
+	var errs []error
+	for _, h := range taken {
+		err := e.writeChunk(h)
+		e.mu.Lock()
+		delete(e.flushing, h)
+		if err != nil {
+			errs = append(errs, err)
+			e.restoreLocked(h)
+		}
+		e.mu.Unlock()
+	}
+	if len(taken) > 0 {
+		errs = append(errs, e.checkpoint())
+	}
+	return errors.Join(errs...)
+}
+
+// restoreLocked puts a head whose flush failed back so it is retried.
+func (e *Engine) restoreLocked(h *chunk.Head) {
+	if cur := e.heads[h.StreamID]; cur != nil {
+		h.Entries = append(h.Entries, cur.Entries...)
+		h.RawBytes += cur.RawBytes
+	}
+	e.heads[h.StreamID] = h
+}
+
+func (e *Engine) writeChunk(h *chunk.Head) error {
+	data, meta, err := chunk.Encode(h.StreamID, h.Entries)
+	if err != nil {
+		return err
+	}
+	id := uuid.NewString()
+	key := chunk.Key(meta.MinTS, h.StreamID, id)
+	if err := e.store.Put(key, data); err != nil {
+		return fmt.Errorf("store chunk: %w", err)
+	}
+	row := &models.Chunk{ID: id, StreamID: h.StreamID, Path: key, MinTS: meta.MinTS, MaxTS: meta.MaxTS,
+		LineCount: meta.Lines, BytesCompressed: int64(meta.BytesCompressed), BytesRaw: int64(meta.BytesRaw)}
+	if err := e.ix.AddChunk(row); err != nil {
+		_ = e.store.Delete(key)
+		return fmt.Errorf("index chunk: %w", err)
+	}
+	return nil
+}
+
+// checkpoint drops WAL segments that no unflushed line depends on.
+func (e *Engine) checkpoint() error {
+	e.mu.Lock()
+	floor := e.wal.CurrentSeq()
+	idle := len(e.heads) == 0 && len(e.flushing) == 0
+	for _, h := range e.heads {
+		floor = min(floor, h.FirstSeg)
+	}
+	for h := range e.flushing {
+		floor = min(floor, h.FirstSeg)
+	}
+	if idle {
+		// Everything is flushed: roll the active segment so it can be dropped too.
+		seq, err := e.wal.Rotate()
+		if err != nil {
+			e.mu.Unlock()
+			return err
+		}
+		floor = seq
+	}
+	e.mu.Unlock()
+	return e.wal.TruncateBefore(floor)
+}
+
+// Run ticks until ctx is cancelled. It does not flush on exit; call Close for that.
+func (e *Engine) Run(ctx context.Context) {
+	t := time.NewTicker(e.cfg.TickEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if err := e.Tick(); err != nil {
+				e.cfg.Log.Error("flush", "err", err)
+			}
+		}
+	}
+}
+
+// Close flushes all heads and closes the WAL.
+func (e *Engine) Close() error {
+	err := e.FlushAll()
+	return errors.Join(err, e.wal.Close())
+}

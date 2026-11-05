@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/cragone/Super-Argus/internal/auth"
+	"github.com/cragone/Super-Argus/internal/ingest"
 	"github.com/cragone/Super-Argus/internal/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -16,6 +17,8 @@ import (
 type Server struct {
 	DB     *gorm.DB
 	Tokens *auth.TokenManager
+	// Ingest serves POST /api/v1/ingest/push (API-key auth). Nil disables the route.
+	Ingest *ingest.Handler
 }
 
 // NewRouter builds the HTTP router.
@@ -29,6 +32,9 @@ func NewRouter(s *Server) http.Handler {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/login", s.login)
 		r.Post("/auth/refresh", s.refresh)
+		if s.Ingest != nil {
+			r.Post("/ingest/push", s.Ingest.Push)
+		}
 
 		r.Group(func(r chi.Router) {
 			r.Use(s.Authenticate)
