@@ -61,7 +61,7 @@ All query routes need `Authorization: Bearer <access token>` (any role).
 - Line filters: `|=` contains, `!=` does not contain, `|~` regex, `!~` negated regex.
 - Parsers: `| json` (nested keys are joined with `_`, so `req.id` becomes `req_id`) and `| logfmt`.
 - Field filters after a parser (or on stream labels): `=` `!=` `=~` `!~` against strings or numbers, and `>` `>=` `<` `<=` against numbers. A missing field behaves like `""`; numeric comparisons on missing or non-numeric fields never match.
-- In double-quoted strings write `"\d+"` to get a backslash, or use a backtick string: `` `\d+` ``.
+- In double-quoted strings write `"\\d+"` to get a backslash, or use a backtick string: `` `\d+` ``.
 - Metric queries (`count_over_time`, `sum by`, `topk`) arrive in Phase 6.
 
 ### Query limits
