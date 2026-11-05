@@ -73,3 +73,29 @@ Streams are found through the indexed `stream_labels` table, then chunks overlap
 On a 12-core dev machine with 10M lines (1.25 GB raw, 100 streams, 1,000 chunks) and a 1h window: selector plus `|=` answers in 40-70 ms; a worst-case full scan of every line (`|= "no-such-text"` across all streams) takes ~0.6 s. Reproduce with `ARGUS_QUERY_LINES=10000000 go test ./internal/query -run LargeDataset -v`.
 
 Golden files live in `internal/query/testdata`; refresh them with `go test ./internal/query -update` and review the diff.
+
+## Client app (Phase 4)
+
+`app/` is one Expo (React Native) codebase for iOS, Android and web: Expo Router, TypeScript, TanStack Query, Zustand, FlashList. Screens so far: sign-in, Explore (label browser, ArgusQL input with label and value autocomplete, time range picker, virtualized results with expandable lines and JSON pretty-printing) and Settings. Dark and light themes follow the system.
+
+```
+cd app
+npm install
+npm run web          # dev server in the browser
+npm run ios          # or: npm run android (needs a simulator/emulator or Expo Go)
+npm test             # Jest + React Native Testing Library
+npm run typecheck
+```
+
+**Pointing the app at a server.** On iOS and Android the sign-in screen asks for the server address and remembers it. The web build served by Argus itself uses the same origin. For `npm run web` against a server on another port, create `app/.env.local` with `EXPO_PUBLIC_ARGUS_URL=http://localhost:8080` and start Argus with `ARGUS_CORS_ORIGINS=http://localhost:8081`.
+
+**Sessions.** Native apps keep the refresh token in the OS keystore (`expo-secure-store`). The web client never touches a refresh token from JavaScript: the server sets it as an HttpOnly, SameSite=Strict cookie (`Secure` behind HTTPS), and access tokens live only in memory.
+
+**Typed API client.** The server publishes its OpenAPI document at `/api/v1/openapi.yaml` (source: `internal/api/openapi/openapi.yaml`). A Go test fails if the router and the document disagree. Regenerate the TypeScript types with `npm run gen:api` after changing it. We write the spec first and verify it against the router rather than using `oapi-codegen` or `swaggo`; this avoids restructuring the handlers or annotating them, and the parity test keeps it honest.
+
+**Embedding the web UI in the binary.**
+```
+cd app && npm run build:web     # exports into internal/webui/dist
+cd .. && go build ./cmd/argus   # the binary now serves the UI at /
+```
+Without the build step the binary still compiles and `/` explains how to build the UI. `dist/` is git-ignored.

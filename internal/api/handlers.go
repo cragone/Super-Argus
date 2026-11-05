@@ -19,12 +19,28 @@ type tokenResponse struct {
 	ExpiresIn    int    `json:"expires_in"`
 }
 
-func (s *Server) tokenPair(w http.ResponseWriter, u *models.User) {
+const refreshCookie = "argus_refresh"
+
+// setRefreshCookie lets the web client keep its refresh token out of JavaScript.
+func (s *Server) setRefreshCookie(w http.ResponseWriter, r *http.Request, token string, maxAge int) {
+	http.SetCookie(w, &http.Cookie{
+		Name: refreshCookie, Value: token, Path: "/api/v1/auth", HttpOnly: true, SameSite: http.SameSiteStrictMode,
+		Secure: r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https", MaxAge: maxAge,
+	})
+}
+
+func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
+	s.setRefreshCookie(w, r, "", -1)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) tokenPair(w http.ResponseWriter, r *http.Request, u *models.User) {
 	acc, ref, err := s.Tokens.IssuePair(u.ID, u.Role)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "could not issue token")
 		return
 	}
+	s.setRefreshCookie(w, r, ref, int(s.Tokens.RefreshTTL.Seconds()))
 	writeJSON(w, http.StatusOK, tokenResponse{acc, ref, int(s.Tokens.AccessTTL.Seconds())})
 }
 
@@ -63,15 +79,21 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
 		return
 	}
-	s.tokenPair(w, &u)
+	s.tokenPair(w, r, &u)
 }
 
 func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		RefreshToken string `json:"refresh_token"`
 	}
-	if !decode(w, r, &in) {
+	// The token may come from the body (native clients) or the HttpOnly cookie (web).
+	if r.ContentLength != 0 && !decode(w, r, &in) {
 		return
+	}
+	if in.RefreshToken == "" {
+		if ck, err := r.Cookie(refreshCookie); err == nil {
+			in.RefreshToken = ck.Value
+		}
 	}
 	c, err := s.Tokens.Parse(in.RefreshToken, auth.TypeRefresh)
 	if err != nil {
@@ -83,7 +105,7 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "user no longer exists")
 		return
 	}
-	s.tokenPair(w, &u)
+	s.tokenPair(w, r, &u)
 }
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {

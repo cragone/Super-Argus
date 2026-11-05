@@ -285,11 +285,12 @@ One codebase in `app/`, using Expo Router. Build web with `npx expo export --pla
 - *Done when:* golden-file tests pass for parser and executor; a 10M-line dataset answers a selector + `|=` query over 1h in under 2s on a dev laptop; limits and timeouts verified
 - *Status:* built and tested with `-race`. Parser and executor are covered by golden files; limits (range, lines, bytes, timeout, per-user concurrency) have tests; 10M lines scan in ~0.6 s worst case (see README). Added a stress test that queries while flushing and found/fixed a real duplicate-lines race (head chunk IDs now equal their chunk IDs so queries can dedupe). Not included: `/series`, metric functions (Phase 6). `start`/`end` are required on every query.
 
-**Phase 4: Client foundation + Explore**
+**Phase 4: Client foundation + Explore** ✅ *complete (see status)*
 - Expo app, Expo Router, theming, API client (generated from OpenAPI), login flow
 - Explore screen with label browser, query input, time picker, virtualized results
 - Embed web export in the Go binary and serve at `/`
 - *Done when:* same app works in iOS simulator, Android emulator, and browser against a local server
+- *Status:* done and verified in a real browser (Chrome driven against the embedded build: login, label browser, autocomplete, query, expand, error display, reload via cookie, logout) plus Jest (35 tests) and `tsc`. iOS and Android bundles compile (`expo export`), but the app has **not** been run in a simulator/emulator here; do that before relying on native. Deviation: OpenAPI is spec-first (hand-written, embedded, route-parity test) instead of `oapi-codegen`/`swaggo`. Added to the server: HttpOnly refresh cookie + `/auth/logout`, opt-in CORS (`ARGUS_CORS_ORIGINS`), SPA serving. Not in this phase: save query / add to dashboard (need Phase 6 APIs).
 
 **Phase 5: Live tail**
 - Tail hub, `/tail` SSE (WebSocket fallback), Live Tail screen

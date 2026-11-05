@@ -1,0 +1,299 @@
+openapi: 3.0.3
+info:
+  title: Argus API
+  version: 0.4.0
+  description: |
+    Argus log server. UI routes use a JWT bearer token (`/auth/login`); ingest uses an API key (`X-Argus-Key`).
+    This spec is served by the server at `/api/v1/openapi.yaml`; the client types in `app/` are generated from it.
+servers:
+  - url: /api/v1
+paths:
+  /auth/login:
+    post:
+      operationId: login
+      summary: Exchange email and password for tokens
+      description: Also sets an HttpOnly `argus_refresh` cookie (used by the web client).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Tokens
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '401': { $ref: '#/components/responses/Error' }
+  /auth/refresh:
+    post:
+      operationId: refresh
+      summary: Exchange a refresh token for a new token pair
+      description: The refresh token comes from the body, or from the `argus_refresh` cookie when the body is empty.
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '200':
+          description: Tokens
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '401': { $ref: '#/components/responses/Error' }
+  /auth/logout:
+    post:
+      operationId: logout
+      summary: Clear the refresh cookie
+      security: []
+      responses:
+        '204': { description: Logged out }
+  /me:
+    get:
+      operationId: getMe
+      summary: The signed-in user
+      responses:
+        '200':
+          description: User
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Error' }
+  /api-keys:
+    get:
+      operationId: listApiKeys
+      summary: List API keys (admin)
+      responses:
+        '200':
+          description: Keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ApiKey' }
+        '403': { $ref: '#/components/responses/Error' }
+    post:
+      operationId: createApiKey
+      summary: Create an API key (admin). The plaintext key is returned once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateApiKeyRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreatedApiKey' }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /api-keys/{id}:
+    delete:
+      operationId: revokeApiKey
+      summary: Revoke an API key (admin)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Revoked }
+        '404': { $ref: '#/components/responses/Error' }
+  /ingest/push:
+    post:
+      operationId: ingestPush
+      summary: Push NDJSON log lines
+      security: [ { apiKey: [] } ]
+      parameters:
+        - { name: X-Argus-Labels, in: header, required: false, schema: { type: string }, description: 'Default labels for the batch: k=v,k2=v2' }
+      requestBody:
+        required: true
+        content:
+          application/x-ndjson:
+            schema: { type: string, description: 'One JSON object per line: {"ts","labels","line"}' }
+      responses:
+        '200':
+          description: Accepted (possibly with some rejected lines)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PushResponse' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /query/range:
+    get:
+      operationId: queryRange
+      summary: Run a log query over a time range
+      parameters:
+        - { name: query, in: query, required: true, schema: { type: string }, description: ArgusQL log query }
+        - { name: start, in: query, required: true, schema: { type: string }, description: RFC3339 or unix nanoseconds (inclusive) }
+        - { name: end, in: query, required: true, schema: { type: string }, description: RFC3339 or unix nanoseconds (exclusive) }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 5000 } }
+        - { name: direction, in: query, required: false, schema: { type: string, enum: [backward, forward], default: backward } }
+      responses:
+        '200':
+          description: Matching entries
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RangeResponse' }
+        '400': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+        '504': { $ref: '#/components/responses/Error' }
+  /labels:
+    get:
+      operationId: listLabels
+      summary: Label names
+      parameters:
+        - { $ref: '#/components/parameters/Start' }
+        - { $ref: '#/components/parameters/End' }
+      responses:
+        '200':
+          description: Names
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StringList' }
+  /labels/{name}/values:
+    get:
+      operationId: listLabelValues
+      summary: Values of one label
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/Start' }
+        - { $ref: '#/components/parameters/End' }
+      responses:
+        '200':
+          description: Values
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StringList' }
+  /openapi.yaml:
+    get:
+      operationId: getOpenApi
+      summary: This document
+      security: []
+      responses:
+        '200':
+          description: OpenAPI document
+          content:
+            application/yaml:
+              schema: { type: string }
+security:
+  - bearer: []
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer, bearerFormat: JWT }
+    apiKey: { type: apiKey, in: header, name: X-Argus-Key }
+  parameters:
+    Start: { name: start, in: query, required: false, schema: { type: string }, description: RFC3339 or unix nanoseconds }
+    End: { name: end, in: query, required: false, schema: { type: string }, description: RFC3339 or unix nanoseconds }
+  responses:
+    Error:
+      description: Error envelope
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorBody' }
+  schemas:
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string }
+        password: { type: string }
+    RefreshRequest:
+      type: object
+      properties:
+        refresh_token: { type: string }
+    TokenResponse:
+      type: object
+      required: [access_token, refresh_token, expires_in]
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        expires_in: { type: integer, description: Access token lifetime in seconds }
+    Me:
+      type: object
+      required: [id, email, role]
+      properties:
+        id: { type: string }
+        email: { type: string }
+        role: { type: string, enum: [viewer, editor, admin] }
+    ApiKey:
+      type: object
+      required: [id, name, key_prefix, label, rate_limit, created_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        key_prefix: { type: string }
+        label: { type: string }
+        rate_limit: { type: integer }
+        last_used_at: { type: string, format: date-time, nullable: true }
+        revoked_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+    CreateApiKeyRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        label: { type: string }
+        rate_limit: { type: integer }
+        allowed_labels: { type: object, additionalProperties: true }
+    CreatedApiKey:
+      allOf:
+        - { $ref: '#/components/schemas/ApiKey' }
+        - type: object
+          required: [key]
+          properties:
+            key: { type: string, description: 'Plaintext key, shown once' }
+    PushResponse:
+      type: object
+      required: [accepted, rejected]
+      properties:
+        accepted: { type: integer }
+        rejected: { type: integer }
+        errors: { type: array, items: { type: string } }
+    StringList:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: { type: string } }
+    QueryEntry:
+      type: object
+      required: [ts, stream, line]
+      properties:
+        ts: { type: string, description: Unix nanoseconds as a string }
+        stream: { type: string, description: 'Key into `streams`' }
+        line: { type: string }
+        fields: { type: object, additionalProperties: { type: string } }
+    QueryStats:
+      type: object
+      required: [lines_scanned, bytes_scanned, chunks_scanned, chunks_skipped, head_lines, streams, elapsed_ms]
+      properties:
+        lines_scanned: { type: integer }
+        bytes_scanned: { type: integer }
+        chunks_scanned: { type: integer }
+        chunks_skipped: { type: integer }
+        head_lines: { type: integer }
+        streams: { type: integer }
+        elapsed_ms: { type: integer }
+    RangeResponse:
+      type: object
+      required: [entries, streams, stats]
+      properties:
+        entries: { type: array, items: { $ref: '#/components/schemas/QueryEntry' } }
+        streams:
+          type: object
+          additionalProperties: { type: object, additionalProperties: { type: string } }
+        stats: { $ref: '#/components/schemas/QueryStats' }

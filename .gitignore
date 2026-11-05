@@ -34,3 +34,7 @@ go.work.sum
 
 # local runtime data
 data/
+
+# built web UI (npm run build:web in app/)
+internal/webui/dist/*
+!internal/webui/dist/.gitkeep
