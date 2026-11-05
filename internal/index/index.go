@@ -61,11 +61,12 @@ type Index struct {
 	streams  map[string]cached // labels text -> stream
 	keyCount map[string]int    // api key -> streams it created
 	seen     map[uint64]time.Time
+	labels   map[uint64]map[string]string // id -> labels, loaded on demand
 }
 
 // New returns an Index over db.
 func New(db *gorm.DB) *Index {
-	return &Index{db: db, Now: time.Now, streams: map[string]cached{}, keyCount: map[string]int{}, seen: map[uint64]time.Time{}}
+	return &Index{db: db, Now: time.Now, streams: map[string]cached{}, keyCount: map[string]int{}, seen: map[uint64]time.Time{}, labels: map[uint64]map[string]string{}}
 }
 
 // Resolve returns the stream id for labels, creating the stream (and its label
@@ -134,6 +135,28 @@ func (ix *Index) Resolve(apiKeyID string, labels map[string]string, maxStreams i
 	ix.streams[text] = cached{id, apiKeyID}
 	ix.seen[id] = now
 	return id, nil
+}
+
+// Labels returns the label set of a stream. The map is shared: do not modify it.
+func (ix *Index) Labels(id uint64) (map[string]string, error) {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	if l, ok := ix.labels[id]; ok {
+		return l, nil
+	}
+	var rows []models.Stream
+	if err := ix.db.Select("id", "labels").Where("id = ?", id).Limit(1).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+	l := map[string]string{}
+	if err := json.Unmarshal([]byte(rows[0].Labels), &l); err != nil {
+		return nil, err
+	}
+	ix.labels[id] = l
+	return l, nil
 }
 
 // FlushSeen persists last_seen for streams touched since the previous call.
@@ -205,6 +228,9 @@ func (ix *Index) PruneStreams(cutoff time.Time) (int, error) {
 	gone := make(map[uint64]bool, len(drop))
 	for _, id := range drop {
 		gone[id] = true
+	}
+	for id := range gone {
+		delete(ix.labels, id)
 	}
 	for text, c := range ix.streams {
 		if gone[c.id] {

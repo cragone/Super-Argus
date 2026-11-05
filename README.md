@@ -99,3 +99,19 @@ cd app && npm run build:web     # exports into internal/webui/dist
 cd .. && go build ./cmd/argus   # the binary now serves the UI at /
 ```
 Without the build step the binary still compiles and `/` explains how to build the UI. `dist/` is git-ignored.
+
+## Live tail (Phase 5)
+
+`GET /api/v1/tail?query=...` streams matching lines as they are ingested, as server-sent events. It takes the same ArgusQL as `/query/range` (a stream selector is required; line filters, `| json` / `| logfmt` and field filters all work) but no time range. Send the access token as `Authorization: Bearer ...` (browsers' `EventSource` cannot, so clients use `fetch` streaming).
+
+Events: `ready`, `entry` (`{ts, stream, labels, line, fields}`), `dropped` (`{"count":N}`), `expired`. Lines starting with `:` are 15-second heartbeats.
+
+- **Filtering is server-side**, so a narrow query costs the client nothing for lines it does not match.
+- **A slow client never slows ingest.** Each tail has a bounded buffer; when it is full, batches are dropped for that tail only and the client is told with a `dropped` event (the app shows "N lines were skipped"). A client that stops reading entirely is disconnected after a 10 s write timeout.
+- **Caps:** `ARGUS_TAIL_PER_USER` (default 5) and `ARGUS_TAIL_MAX` (default 500) open tails; over the cap returns `429`.
+- **Token lifetime:** a tail ends with an `expired` event when the access token expires. The app refreshes the token and reconnects on its own.
+- **Measured:** a pushed line reaches the Go test client in under 10 ms, and a Chrome tab running the web app shows it in about 90-100 ms (it renders in 100 ms batches). Ingesting 16,000 lines with a stalled tail attached took 0.9 s.
+
+In the app, the **Live Tail** tab has start/stop, pause/resume (new lines are held and counted while paused), auto-scroll, clear, level coloring, and keeps the newest 2,000 lines in memory. It reconnects with exponential backoff if the connection drops.
+
+SSE is the only transport. If it proves unreliable on a particular mobile network or proxy, a WebSocket endpoint is the planned fallback (not built).

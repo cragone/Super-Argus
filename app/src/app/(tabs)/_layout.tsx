@@ -17,6 +17,7 @@ export default function TabsLayout() {
         tabBarLabelStyle: { fontSize: 15, fontWeight: '600' },
       }}>
       <Tabs.Screen name="index" options={{ title: 'Explore' }} />
+      <Tabs.Screen name="tail" options={{ title: 'Live Tail' }} />
       <Tabs.Screen name="settings" options={{ title: 'Settings' }} />
     </Tabs>
   );

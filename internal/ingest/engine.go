@@ -33,7 +33,11 @@ func DefaultEngineConfig() EngineConfig {
 
 // Engine owns the write path. Append is durable once it returns (subject to
 // the WAL sync interval); flushed heads become chunk files plus index rows.
+// Publisher receives every accepted batch (the live-tail hub). Publish must never block.
+type Publisher interface{ Publish([]wal.Record) }
+
 type Engine struct {
+	pub   Publisher
 	cfg   EngineConfig
 	wal   *wal.WAL
 	ix    *index.Index
@@ -64,6 +68,9 @@ func NewEngine(w *wal.WAL, ix *index.Index, store chunk.Store, cfg EngineConfig)
 	return &Engine{cfg: cfg, wal: w, ix: ix, store: store,
 		heads: map[uint64]*chunk.Head{}, flushing: map[*chunk.Head]struct{}{}}
 }
+
+// SetPublisher registers the live-tail publisher. Call before accepting traffic.
+func (e *Engine) SetPublisher(p Publisher) { e.pub = p }
 
 // Recover replays the WAL left by a previous run into chunk files, then drops
 // the replayed segments. A crash between writing chunks and dropping segments
@@ -98,6 +105,9 @@ func (e *Engine) Append(recs []wal.Record) error {
 		return err
 	}
 	e.addLocked(seg, recs)
+	if e.pub != nil {
+		e.pub.Publish(recs) // non-blocking; under the lock so tails see WAL order
+	}
 	return nil
 }
 

@@ -292,10 +292,11 @@ One codebase in `app/`, using Expo Router. Build web with `npx expo export --pla
 - *Done when:* same app works in iOS simulator, Android emulator, and browser against a local server
 - *Status:* done and verified in a real browser (Chrome driven against the embedded build: login, label browser, autocomplete, query, expand, error display, reload via cookie, logout) plus Jest (35 tests) and `tsc`. iOS and Android bundles compile (`expo export`), but the app has **not** been run in a simulator/emulator here; do that before relying on native. Deviation: OpenAPI is spec-first (hand-written, embedded, route-parity test) instead of `oapi-codegen`/`swaggo`. Added to the server: HttpOnly refresh cookie + `/auth/logout`, opt-in CORS (`ARGUS_CORS_ORIGINS`), SPA serving. Not in this phase: save query / add to dashboard (need Phase 6 APIs).
 
-**Phase 5: Live tail**
+**Phase 5: Live tail** ✅ *complete (see status)*
 - Tail hub, `/tail` SSE (WebSocket fallback), Live Tail screen
 - Per-user tail cap, required selector, server-side filtering, slow-consumer drop policy
 - *Done when:* a pushed line appears in the client in under 500ms; a stalled client never blocks ingest
+- *Status:* built. Verified: Go tests (hub, SSE endpoint, filtering, caps, heartbeat, token expiry, stalled-client test), Jest (SSE parser, reconnect/refresh logic), and Chrome against the real server (push-to-visible 86-103 ms; pause/resume; stop; bad query; sign-out while tailing). iOS/Android bundles compile but **native streaming via `expo/fetch` has not been run on a device**; if it misbehaves, the WebSocket fallback from this plan is the next step. SSE only for now.
 
 **Phase 6: Metric queries + dashboards**
 - `count_over_time`, `rate`, `bytes_over_time`, `sum by`, `topk`, `/query/metric`

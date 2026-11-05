@@ -147,6 +147,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Live tail (server-sent events)
+         * @description Streams matching lines as they are ingested. Events: `ready`, `entry` (JSON: ts, stream, labels, line, fields),
+         *     `dropped` (`{"count":N}`: the client was too slow), `expired` (access token ended; reconnect with a new one).
+         *     Lines starting with `:` are heartbeats. Each user may hold only a few streams open (429 otherwise).
+         */
+        get: operations["tailStream"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/labels": {
         parameters: {
             query?: never;
@@ -531,6 +553,31 @@ export interface operations {
             422: components["responses"]["Error"];
             429: components["responses"]["Error"];
             504: components["responses"]["Error"];
+        };
+    };
+    tailStream: {
+        parameters: {
+            query: {
+                /** @description ArgusQL log query (stream selector required) */
+                query: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Event stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            400: components["responses"]["Error"];
+            429: components["responses"]["Error"];
         };
     };
     listLabels: {

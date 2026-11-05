@@ -7,9 +7,11 @@ import (
 	"strings"
 
 	"github.com/cragone/Super-Argus/internal/auth"
+	"github.com/cragone/Super-Argus/internal/index"
 	"github.com/cragone/Super-Argus/internal/ingest"
 	"github.com/cragone/Super-Argus/internal/models"
 	"github.com/cragone/Super-Argus/internal/query"
+	"github.com/cragone/Super-Argus/internal/tail"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"gorm.io/gorm"
@@ -23,6 +25,9 @@ type Server struct {
 	Ingest *ingest.Handler
 	// Query serves the query routes. Nil disables them.
 	Query *query.Service
+	// Tail and Index enable GET /tail (live tail). Both must be set.
+	Tail  *tail.Hub
+	Index *index.Index
 	// Web serves the embedded web UI for non-API paths. Nil disables it.
 	Web http.Handler
 	// CORSOrigins lists browser origins allowed to call the API cross-origin.
@@ -56,6 +61,9 @@ func NewRouter(s *Server) http.Handler {
 					r.Get("/labels", s.labelNames)
 					r.Get("/labels/{name}/values", s.labelValues)
 				})
+			}
+			if s.Tail != nil && s.Index != nil {
+				r.With(RequireRole(models.RoleViewer)).Get("/tail", s.tailStream)
 			}
 
 			r.Group(func(r chi.Router) {
