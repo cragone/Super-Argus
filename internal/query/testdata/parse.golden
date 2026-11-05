@@ -1,0 +1,102 @@
+query: {service="api"}
+canon: {service="api"}
+
+query: {service="api", env="prod"}
+canon: {service="api", env="prod"}
+
+query: {service="api",}
+canon: {service="api"}
+
+query: {service=~"api|web", env!="dev"}
+canon: {service=~"api|web", env!="dev"}
+
+query: {service=`a"b`}
+canon: {service="a\"b"}
+
+query: {service="api"} |= "timeout"
+canon: {service="api"} |= "timeout"
+
+query: {service="api"} |= "timeout" != "healthcheck" |~ "5\\d\\d" !~ "GET /ping"
+canon: {service="api"} |= "timeout" != "healthcheck" |~ "5\\d\\d" !~ "GET /ping"
+
+query: {service="api"} | json
+canon: {service="api"} | json
+
+query: {service="api"} | logfmt | level="error"
+canon: {service="api"} | logfmt | level = "error"
+
+query: {service="api"} | json | level="error" | status>=500 | latency<0.25
+canon: {service="api"} | json | level = "error" | status >= 500 | latency < 0.25
+
+query: {service="api"} | json | route=~"/v1/.*" | user!="bot" | code=200 | code!=404 | n>-3
+canon: {service="api"} | json | route =~ "/v1/.*" | user != "bot" | code = 200 | code != 404 | n > -3
+
+query: {service="api"} |= "a" | json | msg !~ "x.y"
+canon: {service="api"} |= "a" | json | msg !~ "x.y"
+
+query: {service="api"} | json = "x"
+canon: {service="api"} | json = "x"
+
+query: 
+error: syntax error at position 0: expected '{', found end of query
+
+query: {}
+error: syntax error at position 1: selector needs at least one matcher
+
+query: {service=~".*"}
+error: syntax error at position 14: selector must contain at least one matcher that cannot match an empty value, e.g. service="api"
+
+query: {service!="x"}
+error: syntax error at position 13: selector must contain at least one matcher that cannot match an empty value, e.g. service="api"
+
+query: {service=""}
+error: syntax error at position 11: selector must contain at least one matcher that cannot match an empty value, e.g. service="api"
+
+query: {service="api"
+error: syntax error at position 14: expected '}', found end of query
+
+query: {service="api}
+error: syntax error at position 9: unterminated string
+
+query: {service=api}
+error: syntax error at position 9: expected string, found identifier
+
+query: {service "api"}
+error: syntax error at position 9: expected one of = != =~ !~ after label "service", found string
+
+query: {service=~"("}
+error: syntax error at position 10: invalid regular expression: error parsing regexp: missing closing ): `(`
+
+query: {service="api"} |= 
+error: syntax error at position 19: expected string, found end of query
+
+query: {service="api"} |= 5
+error: syntax error at position 19: expected string, found number
+
+query: {service="api"} |~ "("
+error: syntax error at position 19: invalid regular expression: error parsing regexp: missing closing ): `(`
+
+query: {service="api"} | foo
+error: syntax error at position 18: unknown pipeline stage "foo" (supported: json, logfmt, or a field filter like level="error")
+
+query: {service="api"} | level>"x"
+error: syntax error at position 24: operator > needs a number, found a string
+
+query: {service="api"} | level=~5
+error: syntax error at position 25: regular expression operand must be a string, found number
+
+query: {service="api"} | level=
+error: syntax error at position 24: expected a string or number after =, found end of query
+
+query: {service="api"} garbage
+error: syntax error at position 16: expected a pipeline stage (|= != |~ !~ | json | logfmt | field filter), found identifier
+
+query: {service="api"} ! "x"
+error: syntax error at position 16: unexpected '!'
+
+query: count_over_time({service="api"}[5m])
+error: syntax error at position 0: metric queries are not supported yet; start with a stream selector like {service="api"}
+
+query: {service="api"} # comment
+error: syntax error at position 16: unexpected character '#'
+

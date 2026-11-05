@@ -22,6 +22,7 @@ import (
 	"github.com/cragone/Super-Argus/internal/db"
 	"github.com/cragone/Super-Argus/internal/index"
 	"github.com/cragone/Super-Argus/internal/ingest"
+	"github.com/cragone/Super-Argus/internal/query"
 	"github.com/cragone/Super-Argus/internal/retention"
 	"github.com/cragone/Super-Argus/internal/wal"
 )
@@ -99,9 +100,13 @@ func main() {
 	jan := &retention.Janitor{Index: ix, Store: store, Days: cfg.RetentionDays, Log: log}
 	go func() { defer wg.Done(); jan.Run(bg, time.Hour) }()
 
+	ql := query.DefaultLimits()
+	ql.MaxRange, ql.MaxBytesScanned, ql.Timeout, ql.PerUserConcurrency = cfg.QueryMaxRange, cfg.QueryMaxBytes, cfg.QueryTimeout, cfg.QueryConc
+
 	handler := api.NewRouter(&api.Server{
 		DB: g, Tokens: auth.NewTokenManager(cfg.JWTSecret),
 		Ingest: ingest.NewHandler(g, eng, ix, limits),
+		Query:  query.NewService(g, store, eng, ql),
 	})
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	go func() {

@@ -106,7 +106,7 @@ func (e *Engine) addLocked(seg uint64, recs []wal.Record) {
 	for _, r := range recs {
 		h := e.heads[r.StreamID]
 		if h == nil {
-			h = &chunk.Head{StreamID: r.StreamID}
+			h = &chunk.Head{StreamID: r.StreamID, ID: uuid.NewString()}
 			e.heads[r.StreamID] = h
 		}
 		h.Add(seg, now, chunk.Entry{TS: r.TS, Line: r.Line})
@@ -122,6 +122,36 @@ func (e *Engine) HeadLines() int {
 		n += len(h.Entries)
 	}
 	return n
+}
+
+// SnapshotHeads implements chunk.HeadSource.
+func (e *Engine) SnapshotHeads(streams map[uint64]struct{}, from, to int64) []chunk.HeadSnapshot {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var out []chunk.HeadSnapshot
+	snap := func(h *chunk.Head) {
+		if streams != nil {
+			if _, ok := streams[h.StreamID]; !ok {
+				return
+			}
+		}
+		var es []chunk.Entry
+		for _, en := range h.Entries {
+			if en.TS >= from && en.TS < to {
+				es = append(es, en)
+			}
+		}
+		if len(es) > 0 {
+			out = append(out, chunk.HeadSnapshot{StreamID: h.StreamID, ChunkID: h.ID, Entries: es})
+		}
+	}
+	for _, h := range e.heads {
+		snap(h)
+	}
+	for h := range e.flushing {
+		snap(h)
+	}
+	return out
 }
 
 // Tick flushes heads that are full or old, persists last_seen and trims the WAL.
@@ -182,7 +212,7 @@ func (e *Engine) writeChunk(h *chunk.Head) error {
 	if err != nil {
 		return err
 	}
-	id := uuid.NewString()
+	id := h.ID
 	key := chunk.Key(meta.MinTS, h.StreamID, id)
 	if err := e.store.Put(key, data); err != nil {
 		return fmt.Errorf("store chunk: %w", err)

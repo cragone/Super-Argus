@@ -8,6 +8,7 @@ import (
 	"github.com/cragone/Super-Argus/internal/auth"
 	"github.com/cragone/Super-Argus/internal/ingest"
 	"github.com/cragone/Super-Argus/internal/models"
+	"github.com/cragone/Super-Argus/internal/query"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"gorm.io/gorm"
@@ -19,6 +20,8 @@ type Server struct {
 	Tokens *auth.TokenManager
 	// Ingest serves POST /api/v1/ingest/push (API-key auth). Nil disables the route.
 	Ingest *ingest.Handler
+	// Query serves the query routes. Nil disables them.
+	Query *query.Service
 }
 
 // NewRouter builds the HTTP router.
@@ -39,6 +42,14 @@ func NewRouter(s *Server) http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(s.Authenticate)
 			r.With(RequireRole(models.RoleViewer)).Get("/me", s.me)
+			if s.Query != nil {
+				r.Group(func(r chi.Router) {
+					r.Use(RequireRole(models.RoleViewer))
+					r.Get("/query/range", s.queryRange)
+					r.Get("/labels", s.labelNames)
+					r.Get("/labels/{name}/values", s.labelValues)
+				})
+			}
 
 			r.Group(func(r chi.Router) {
 				r.Use(RequireRole(models.RoleAdmin))
