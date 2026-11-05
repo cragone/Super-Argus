@@ -58,10 +58,29 @@ func NewRouter(s *Server) http.Handler {
 				r.Group(func(r chi.Router) {
 					r.Use(RequireRole(models.RoleViewer))
 					r.Get("/query/range", s.queryRange)
+					r.Get("/query/metric", s.queryMetric)
 					r.Get("/labels", s.labelNames)
 					r.Get("/labels/{name}/values", s.labelValues)
 				})
 			}
+			r.Group(func(r chi.Router) {
+				r.Use(RequireRole(models.RoleViewer))
+				r.Get("/saved-queries", s.listSavedQueries)
+				r.Get("/dashboards", s.listDashboards)
+				r.Get("/dashboards/{id}", s.getDashboard)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(RequireRole(models.RoleEditor))
+				r.Post("/saved-queries", s.createSavedQuery)
+				r.Put("/saved-queries/{id}", s.updateSavedQuery)
+				r.Delete("/saved-queries/{id}", s.deleteSavedQuery)
+				r.Post("/dashboards", s.createDashboard)
+				r.Put("/dashboards/{id}", s.updateDashboard)
+				r.Delete("/dashboards/{id}", s.deleteDashboard)
+				r.Post("/dashboards/{id}/panels", s.createPanel)
+				r.Put("/dashboards/{id}/panels/{panelId}", s.updatePanel)
+				r.Delete("/dashboards/{id}/panels/{panelId}", s.deletePanel)
+			})
 			if s.Tail != nil && s.Index != nil {
 				r.With(RequireRole(models.RoleViewer)).Get("/tail", s.tailStream)
 			}

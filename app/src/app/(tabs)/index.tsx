@@ -6,6 +6,7 @@ import { errorMessage } from '@/api/client';
 import { LabelBrowser } from '@/components/LabelBrowser';
 import { LogRow } from '@/components/LogRow';
 import { QueryInput } from '@/components/QueryInput';
+import { SaveBar } from '@/components/SaveBar';
 import { TimeRangePicker } from '@/components/TimeRangePicker';
 import { Button, Chip, ErrorText } from '@/components/ui';
 import { useRangeQuery, type SubmittedQuery } from '@/hooks/useLogs';
@@ -69,6 +70,14 @@ export default function ExploreScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Chip label={showLabels ? 'Hide labels' : 'Browse labels'} onPress={() => setShowLabels((v) => !v)} />
         </View>
+        <SaveBar
+          query={query}
+          range={range}
+          onLoad={(q) => {
+            setQuery(q.query);
+            if (q.default_range) setRange({ kind: 'preset', id: q.default_range });
+          }}
+        />
         {showLabels && <LabelBrowser onPick={(n, v) => setQuery((q) => addMatcher(q, n, v))} />}
         {formError && <ErrorText>{formError}</ErrorText>}
       </View>

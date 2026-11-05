@@ -48,6 +48,11 @@ func (f *fakeHeads) SnapshotHeads(streams map[uint64]struct{}, from, to int64) [
 	return out
 }
 
+type loaded struct {
+	service, env string
+	e            chunk.Entry
+}
+
 type fixture struct {
 	t     *testing.T
 	g     *gorm.DB
@@ -57,6 +62,7 @@ type fixture struct {
 	heads *fakeHeads
 	ids   map[string]uint64 // "svc/env" -> stream id
 	n     int
+	all   []loaded          // every line written by load(), for brute-force comparisons
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -122,6 +128,7 @@ func (f *fixture) load() {
 						line += " timeout"
 					}
 					es = append(es, chunk.Entry{TS: at(i), Line: line})
+					f.all = append(f.all, loaded{svc, env, chunk.Entry{TS: at(i), Line: line}})
 				}
 				f.addChunk(id, es)
 			}

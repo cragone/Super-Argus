@@ -160,6 +160,194 @@ paths:
               schema: { type: string }
         '400': { $ref: '#/components/responses/Error' }
         '429': { $ref: '#/components/responses/Error' }
+  /query/metric:
+    get:
+      operationId: queryMetric
+      summary: Run a metric query (range aggregation) over a time range
+      description: |
+        count_over_time, rate and bytes_over_time, optionally wrapped in sum [by (...)] and topk(n, ...).
+        Start and end are aligned down to the step, and identical requests are cached for one step.
+      parameters:
+        - { name: query, in: query, required: true, schema: { type: string } }
+        - { name: start, in: query, required: true, schema: { type: string }, description: RFC3339 or unix nanoseconds }
+        - { name: end, in: query, required: true, schema: { type: string }, description: RFC3339 or unix nanoseconds }
+        - { name: step, in: query, required: false, schema: { type: string }, description: Duration like 30s or seconds; default picks about 250 points }
+      responses:
+        '200':
+          description: Series
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MetricResponse' }
+        '400': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+        '504': { $ref: '#/components/responses/Error' }
+  /saved-queries:
+    get:
+      operationId: listSavedQueries
+      summary: Saved queries
+      responses:
+        '200':
+          description: Queries
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/SavedQuery' } }
+    post:
+      operationId: createSavedQuery
+      summary: Save a query (editor)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SavedQueryInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SavedQuery' }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /saved-queries/{id}:
+    put:
+      operationId: updateSavedQuery
+      summary: Update a saved query (editor)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SavedQueryInput' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SavedQuery' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: deleteSavedQuery
+      summary: Delete a saved query (editor)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/Error' }
+  /dashboards:
+    get:
+      operationId: listDashboards
+      summary: Dashboards (without panels)
+      responses:
+        '200':
+          description: Dashboards
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Dashboard' } }
+    post:
+      operationId: createDashboard
+      summary: Create a dashboard (editor)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DashboardInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Dashboard' }
+        '400': { $ref: '#/components/responses/Error' }
+  /dashboards/{id}:
+    get:
+      operationId: getDashboard
+      summary: A dashboard with its panels
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Dashboard
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Dashboard' }
+        '404': { $ref: '#/components/responses/Error' }
+    put:
+      operationId: updateDashboard
+      summary: Update title, description and layout (editor)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DashboardInput' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Dashboard' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: deleteDashboard
+      summary: Delete a dashboard and its panels (editor)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/Error' }
+  /dashboards/{id}/panels:
+    post:
+      operationId: createPanel
+      summary: Add a panel (editor)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PanelInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Panel' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /dashboards/{id}/panels/{panelId}:
+    put:
+      operationId: updatePanel
+      summary: Update a panel (editor)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: panelId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PanelInput' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Panel' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: deletePanel
+      summary: Delete a panel (editor)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: panelId, in: path, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/Error' }
   /labels:
     get:
       operationId: listLabels
@@ -315,3 +503,80 @@ components:
           type: object
           additionalProperties: { type: object, additionalProperties: { type: string } }
         stats: { $ref: '#/components/schemas/QueryStats' }
+    MetricSeries:
+      type: object
+      required: [labels, values]
+      properties:
+        labels: { type: object, additionalProperties: { type: string } }
+        values:
+          type: array
+          description: Pairs of [unix milliseconds, value]
+          items: { type: array, items: { type: number }, minItems: 2, maxItems: 2 }
+    MetricResponse:
+      type: object
+      required: [series, start_ms, end_ms, step_ms, stats]
+      properties:
+        series: { type: array, items: { $ref: '#/components/schemas/MetricSeries' } }
+        start_ms: { type: integer }
+        end_ms: { type: integer }
+        step_ms: { type: integer }
+        stats: { $ref: '#/components/schemas/QueryStats' }
+    SavedQueryInput:
+      type: object
+      required: [name, query]
+      properties:
+        name: { type: string }
+        query: { type: string, description: A log query or a metric query }
+        default_range: { type: string, description: Preset id such as 1h, default: 1h }
+    SavedQuery:
+      allOf:
+        - { $ref: '#/components/schemas/SavedQueryInput' }
+        - type: object
+          required: [id, owner_id, default_range, created_at, updated_at]
+          properties:
+            id: { type: string }
+            owner_id: { type: string }
+            default_range: { type: string }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+    PanelInput:
+      type: object
+      required: [title, type, query]
+      properties:
+        title: { type: string }
+        type: { type: string, enum: [logs, timeseries, top_n, stat] }
+        query: { type: string, description: A log query for logs panels and a metric query for the others }
+        step: { type: string, description: Duration like 30s; empty means automatic }
+        options: { type: object, additionalProperties: true }
+        position: { type: integer }
+    Panel:
+      type: object
+      required: [id, dashboard_id, title, type, query, step, options, position]
+      properties:
+        id: { type: string }
+        dashboard_id: { type: string }
+        title: { type: string }
+        type: { type: string, enum: [logs, timeseries, top_n, stat] }
+        query: { type: string }
+        step: { type: string }
+        options: { type: object, additionalProperties: true }
+        position: { type: integer }
+    DashboardInput:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        layout: { type: object, additionalProperties: true }
+    Dashboard:
+      type: object
+      required: [id, owner_id, title, description, layout, panels, created_at, updated_at]
+      properties:
+        id: { type: string }
+        owner_id: { type: string }
+        title: { type: string }
+        description: { type: string }
+        layout: { type: object, additionalProperties: true }
+        panels: { type: array, items: { $ref: '#/components/schemas/Panel' } }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }

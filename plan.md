@@ -298,11 +298,12 @@ One codebase in `app/`, using Expo Router. Build web with `npx expo export --pla
 - *Done when:* a pushed line appears in the client in under 500ms; a stalled client never blocks ingest
 - *Status:* built. Verified: Go tests (hub, SSE endpoint, filtering, caps, heartbeat, token expiry, stalled-client test), Jest (SSE parser, reconnect/refresh logic), and Chrome against the real server (push-to-visible 86-103 ms; pause/resume; stop; bad query; sign-out while tailing). iOS/Android bundles compile but **native streaming via `expo/fetch` has not been run on a device**; if it misbehaves, the WebSocket fallback from this plan is the next step. SSE only for now.
 
-**Phase 6: Metric queries + dashboards**
+**Phase 6: Metric queries + dashboards** ✅ *complete (see status)*
 - `count_over_time`, `rate`, `bytes_over_time`, `sum by`, `topk`, `/query/metric`
 - Dashboard, Panel, SavedQuery migrations, CRUD APIs
 - Dashboard UI with timeseries, top-N, stat, and logs panels; shared time range; auto-refresh
 - *Done when:* a dashboard of four panels renders on mobile and web, and queries are cached for the step interval
+- *Status:* built. Verified: metric engine checked against a brute-force evaluator for 11 queries x 3 step sizes, golden parser tests, limits, step-aligned cache; dashboards/panels/saved-query API tests (roles, validation, cascade); Jest (78 tests); real Chrome run in light and dark: dashboard created through the UI, four panel types rendered, hover tooltip, table view, edit controls, rejected query shown. **Web only:** the dashboard has not been run on a phone or simulator (iOS/Android bundles compile; chart touch uses press-and-drag). Deviations: panels are moved and resized with buttons rather than drag handles; charts are custom `react-native-svg` (the plan allowed it). Top-N and stat panels use the newest point of the series. A pre-existing rule is kept: metric ranges are limited separately (default 31 days) from log ranges (7 days).
 
 **Phase 7: Alerts**
 - AlertRule, AlertState, AlertEvent, NotificationChannel migrations

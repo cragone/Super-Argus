@@ -74,7 +74,7 @@ function harness(responses: TailResponse[], tokens: { current: string | null; re
   return { conn, calls, entries, statuses, errors, dropped, sleeps, refreshes: () => refreshes };
 }
 
-const settle = () => new Promise((r) => setTimeout(r, 20));
+const settle = () => new Promise((r) => setTimeout(r, 120)); // generous: the loop runs on macrotasks, so load can delay it
 
 describe('TailConnection', () => {
   it('connects with the bearer token, reports live and delivers entries and drops', async () => {

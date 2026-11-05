@@ -54,6 +54,23 @@ func (p *parser) query() (*Query, error) {
 	if t := p.peek(); t.kind == tIdent {
 		return nil, p.errf(t, "%s", metricMsg)
 	}
+	q, err := p.logQuery()
+	if err != nil {
+		return nil, err
+	}
+	if t := p.peek(); t.kind != tEOF {
+		return nil, p.errf(t, "expected a pipeline stage (|= != |~ !~ | json | logfmt | field filter), found %s", t.kind)
+	}
+	return q, nil
+}
+
+func isStageStart(k tokKind) bool {
+	return k == tPipeEq || k == tNeq || k == tPipeRe || k == tNre || k == tPipe
+}
+
+// logQuery parses a stream selector and its pipeline stages, stopping at the
+// first token that cannot start a stage (end of input, ']' or ')').
+func (p *parser) logQuery() (*Query, error) {
 	if _, err := p.expect(tLBrace); err != nil {
 		return nil, err
 	}
@@ -80,7 +97,7 @@ func (p *parser) query() (*Query, error) {
 	if !hasNonEmptyMatcher(q.Matchers) {
 		return nil, p.errf(closeTok, "selector must contain at least one matcher that cannot match an empty value, e.g. service=\"api\"")
 	}
-	for p.peek().kind != tEOF {
+	for isStageStart(p.peek().kind) {
 		s, err := p.stage()
 		if err != nil {
 			return nil, err

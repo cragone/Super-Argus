@@ -27,12 +27,16 @@ type Limits struct {
 	Timeout            time.Duration // per-query deadline
 	PerUserConcurrency int           // simultaneous queries per user
 	Workers            int           // parallel chunk scanners (0 = NumCPU)
+	MaxMetricRange     time.Duration // widest range for metric queries
+	MaxSteps           int           // points per series
+	MaxSeries          int           // series per metric query
 }
 
 // DefaultLimits returns the limits from the build plan.
 func DefaultLimits() Limits {
 	return Limits{MaxRange: 7 * 24 * time.Hour, DefaultLimit: 1000, MaxLimit: 5000,
-		MaxBytesScanned: 4 << 30, Timeout: 30 * time.Second, PerUserConcurrency: 4}
+		MaxBytesScanned: 4 << 30, Timeout: 30 * time.Second, PerUserConcurrency: 4,
+		MaxMetricRange: 31 * 24 * time.Hour, MaxSteps: 2000, MaxSeries: 500}
 }
 
 // Error kinds, wrapped by *Error so the API layer can pick a status code.
@@ -64,11 +68,12 @@ type Service struct {
 
 	mu     sync.Mutex
 	active map[string]int // user -> running queries
+	mcache *metricCache
 }
 
 // NewService builds a query service.
 func NewService(db *gorm.DB, store chunk.Store, heads chunk.HeadSource, l Limits) *Service {
-	return &Service{DB: db, Store: store, Heads: heads, Limits: l, Now: time.Now, active: map[string]int{}}
+	return &Service{DB: db, Store: store, Heads: heads, Limits: l, Now: time.Now, active: map[string]int{}, mcache: newMetricCache(256)}
 }
 
 // Request is a range query. Start is inclusive, End exclusive, in unix nanoseconds.

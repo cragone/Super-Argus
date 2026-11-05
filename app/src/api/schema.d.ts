@@ -169,6 +169,135 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/query/metric": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Run a metric query (range aggregation) over a time range
+         * @description count_over_time, rate and bytes_over_time, optionally wrapped in sum [by (...)] and topk(n, ...).
+         *     Start and end are aligned down to the step, and identical requests are cached for one step.
+         */
+        get: operations["queryMetric"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/saved-queries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Saved queries */
+        get: operations["listSavedQueries"];
+        put?: never;
+        /** Save a query (editor) */
+        post: operations["createSavedQuery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/saved-queries/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update a saved query (editor) */
+        put: operations["updateSavedQuery"];
+        post?: never;
+        /** Delete a saved query (editor) */
+        delete: operations["deleteSavedQuery"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Dashboards (without panels) */
+        get: operations["listDashboards"];
+        put?: never;
+        /** Create a dashboard (editor) */
+        post: operations["createDashboard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A dashboard with its panels */
+        get: operations["getDashboard"];
+        /** Update title, description and layout (editor) */
+        put: operations["updateDashboard"];
+        post?: never;
+        /** Delete a dashboard and its panels (editor) */
+        delete: operations["deleteDashboard"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/{id}/panels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add a panel (editor) */
+        post: operations["createPanel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/{id}/panels/{panelId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update a panel (editor) */
+        put: operations["updatePanel"];
+        post?: never;
+        /** Delete a panel (editor) */
+        delete: operations["deletePanel"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/labels": {
         parameters: {
             query?: never;
@@ -309,6 +438,86 @@ export interface components {
                 };
             };
             stats: components["schemas"]["QueryStats"];
+        };
+        MetricSeries: {
+            labels: {
+                [key: string]: string;
+            };
+            /** @description Pairs of [unix milliseconds, value] */
+            values: number[][];
+        };
+        MetricResponse: {
+            series: components["schemas"]["MetricSeries"][];
+            start_ms: number;
+            end_ms: number;
+            step_ms: number;
+            stats: components["schemas"]["QueryStats"];
+        };
+        SavedQueryInput: {
+            name: string;
+            /** @description A log query or a metric query */
+            query: string;
+            /**
+             * @description Preset id such as 1h
+             * @default 1h
+             */
+            default_range: string;
+        };
+        SavedQuery: components["schemas"]["SavedQueryInput"] & {
+            id: string;
+            owner_id: string;
+            default_range: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        PanelInput: {
+            title: string;
+            /** @enum {string} */
+            type: "logs" | "timeseries" | "top_n" | "stat";
+            /** @description A log query for logs panels and a metric query for the others */
+            query: string;
+            /** @description Duration like 30s; empty means automatic */
+            step?: string;
+            options?: {
+                [key: string]: unknown;
+            };
+            position?: number;
+        };
+        Panel: {
+            id: string;
+            dashboard_id: string;
+            title: string;
+            /** @enum {string} */
+            type: "logs" | "timeseries" | "top_n" | "stat";
+            query: string;
+            step: string;
+            options: {
+                [key: string]: unknown;
+            };
+            position: number;
+        };
+        DashboardInput: {
+            title: string;
+            description?: string;
+            layout?: {
+                [key: string]: unknown;
+            };
+        };
+        Dashboard: {
+            id: string;
+            owner_id: string;
+            title: string;
+            description: string;
+            layout: {
+                [key: string]: unknown;
+            };
+            panels: components["schemas"]["Panel"][];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
         };
     };
     responses: {
@@ -578,6 +787,330 @@ export interface operations {
             };
             400: components["responses"]["Error"];
             429: components["responses"]["Error"];
+        };
+    };
+    queryMetric: {
+        parameters: {
+            query: {
+                query: string;
+                /** @description RFC3339 or unix nanoseconds */
+                start: string;
+                /** @description RFC3339 or unix nanoseconds */
+                end: string;
+                /** @description Duration like 30s or seconds; default picks about 250 points */
+                step?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Series */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricResponse"];
+                };
+            };
+            400: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            504: components["responses"]["Error"];
+        };
+    };
+    listSavedQueries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Queries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedQuery"][];
+                };
+            };
+        };
+    };
+    createSavedQuery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavedQueryInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedQuery"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+        };
+    };
+    updateSavedQuery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavedQueryInput"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedQuery"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteSavedQuery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    listDashboards: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dashboards */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dashboard"][];
+                };
+            };
+        };
+    };
+    createDashboard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DashboardInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dashboard"];
+                };
+            };
+            400: components["responses"]["Error"];
+        };
+    };
+    getDashboard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dashboard */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dashboard"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    updateDashboard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DashboardInput"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dashboard"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteDashboard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    createPanel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PanelInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Panel"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+        };
+    };
+    updatePanel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                panelId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PanelInput"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Panel"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    deletePanel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                panelId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
         };
     };
     listLabels: {
