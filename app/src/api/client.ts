@@ -5,6 +5,10 @@ import type { components, paths } from './schema';
 export type RangeResponse = components['schemas']['RangeResponse'];
 export type QueryEntry = components['schemas']['QueryEntry'];
 export type Me = components['schemas']['Me'];
+export type Panel = components['schemas']['Panel'];
+export type Dashboard = components['schemas']['Dashboard'];
+export type MetricResponse = components['schemas']['MetricResponse'];
+export type SavedQuery = components['schemas']['SavedQuery'];
 
 /** What the API client needs from the session layer (injected to avoid an import cycle). */
 export interface SessionBridge {

@@ -115,3 +115,36 @@ Events: `ready`, `entry` (`{ts, stream, labels, line, fields}`), `dropped` (`{"c
 In the app, the **Live Tail** tab has start/stop, pause/resume (new lines are held and counted while paused), auto-scroll, clear, level coloring, and keeps the newest 2,000 lines in memory. It reconnects with exponential backoff if the connection drops.
 
 SSE is the only transport. If it proves unreliable on a particular mobile network or proxy, a WebSocket endpoint is the planned fallback (not built).
+
+## Metric queries and dashboards (Phase 6)
+
+### Metric queries
+`GET /api/v1/query/metric?query=&start=&end=&step=` evaluates a range aggregation at every step:
+
+```
+count_over_time({service="api"} |= "error" [5m])
+rate({env="prod"} | json | status>=500 [1m])
+bytes_over_time({service="api"}[1h])
+sum by (level) (count_over_time({env="prod"} | json [1m]))
+topk(10, sum by (route) (count_over_time({service="api"} | json | status>=500 [1h])))
+```
+
+- The value at time *t* covers the lines in `(t - window, t]`. `rate` is lines per second; `bytes_over_time` sums line sizes.
+- Without `sum`, there is one series per stream (labelled with the stream labels). `sum by (a, b)` groups by those labels; they may be stream labels or fields extracted by `| json` / `| logfmt`. `sum(...)` alone folds everything into one series.
+- `topk(n, ...)` keeps the n largest series **at each step**, so a series can appear and disappear (the chart breaks the line there).
+- `step` is a duration (`30s`, `5m`) or seconds; by default about 250 points. `start` and `end` are aligned down to the step, and **identical requests are cached for one step**, so dashboards refreshing faster than their step do not rescan.
+- Durations accept `ms`, `s`, `m`, `h`, `d`, `w`.
+- Response: `{"series":[{"labels":{},"values":[[unix_ms, value],...]}],"start_ms","end_ms","step_ms","stats"}`.
+- Limits: `ARGUS_QUERY_METRIC_MAX_RANGE` (default `744h`), at most 2,000 steps and 500 series per query, plus the scan-bytes budget, timeout and per-user concurrency from the log query limits. Over a limit returns `422`.
+
+### Dashboards, panels, saved queries
+REST resources under `/api/v1` (viewers read, editors and admins write): `/dashboards`, `/dashboards/{id}` (includes panels), `/dashboards/{id}/panels[/{panelId}]`, `/saved-queries`. A panel has a `type` (`timeseries`, `top_n`, `stat`, `logs`), a `query` (metric for the first three, log for `logs`; validated on save), an optional `step`, free-form `options` (the app uses `width` and `height`) and a `position`. A dashboard holds up to 100 panels.
+
+### In the app
+- **Dashboards tab:** list, create, open. A dashboard has one time range and one auto-refresh interval (off, 15s, 30s, 1m, 5m) shared by every panel, in a single row above the panels. Charts keep their previous frame (dimmed) while refreshing.
+- **Panels:** time series (line per series, 2 px lines, hairline grid, legend for 2+ series, crosshair tooltip that lists every series, **Table** toggle with every value, more than 8 series fold into "Other"), top-N ranked bars (newest value, largest first, one hue), stat (headline number plus sparkline) and logs (newest 50 lines).
+- **Edit mode** (editors and admins): add, edit and delete panels; move up/down; toggle half/full width; cycle height. We use buttons instead of drag-to-resize, which works the same on touch and mouse.
+- **Explore:** *Save query*, *Add to dashboard*, and a row of saved queries to load.
+- Chart colors are the validated reference palette from the dataviz guidance (fixed slot order, a series keeps its color when others appear or disappear). `node validate_palette.js` passes for both modes; light-mode contrast is low for three hues, which the legend and table view cover.
+
+Seed data for a demo: push an hour of traffic, then open the Dashboards tab.
