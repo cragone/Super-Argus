@@ -11,24 +11,25 @@ import (
 
 // Config holds runtime settings.
 type Config struct {
-	DataDir       string
-	HTTPAddr      string
-	DBDSN         string
-	RetentionDays int
-	JWTSecret     string
-	AdminEmail    string
-	AdminPassword string
-	WALSyncMS     int
-	QueryTimeout  time.Duration
-	MaxStreams    int
-	RateLines     int // default per-key lines/sec
-	RateBytes     int // per-key bytes/sec
-	QueryMaxRange time.Duration
-	QueryMaxBytes int64
-	QueryConc     int // concurrent queries per user
-	CORSOrigins   string
-	TailPerUser   int
-	TailMax       int
+	DataDir          string
+	HTTPAddr         string
+	DBDSN            string
+	RetentionDays    int
+	JWTSecret        string
+	AdminEmail       string
+	AdminPassword    string
+	WALSyncMS        int
+	QueryTimeout     time.Duration
+	MaxStreams       int
+	RateLines        int // default per-key lines/sec
+	RateBytes        int // per-key bytes/sec
+	QueryMaxRange    time.Duration
+	QueryMaxBytes    int64
+	QueryConc        int // concurrent queries per user
+	QueryMetricRange time.Duration
+	CORSOrigins      string
+	TailPerUser      int
+	TailMax          int
 }
 
 func env(k, def string) string {
@@ -67,6 +68,9 @@ func Load() (*Config, error) {
 	}
 	c.QueryTimeout = d
 	if c.QueryMaxRange, err = time.ParseDuration(env("ARGUS_QUERY_MAX_RANGE", "168h")); err != nil {
+		return nil, err
+	}
+	if c.QueryMetricRange, err = time.ParseDuration(env("ARGUS_QUERY_METRIC_MAX_RANGE", "744h")); err != nil {
 		return nil, err
 	}
 	c.QueryMaxBytes = int64(envInt("ARGUS_QUERY_MAX_BYTES_MB", 4096)) << 20

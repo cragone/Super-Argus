@@ -114,3 +114,71 @@ type Chunk struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
+
+// Panel types.
+const (
+	PanelLogs       = "logs"
+	PanelTimeseries = "timeseries"
+	PanelTopN       = "top_n"
+	PanelStat       = "stat"
+)
+
+// SavedQuery is a named query a user can reuse.
+type SavedQuery struct {
+	ID           string `gorm:"primaryKey"`
+	OwnerID      string `gorm:"column:owner_id"`
+	Name         string
+	Query        string
+	DefaultRange string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// BeforeCreate assigns a UUID if none is set.
+func (q *SavedQuery) BeforeCreate(*gorm.DB) error {
+	if q.ID == "" {
+		q.ID = uuid.NewString()
+	}
+	return nil
+}
+
+// Dashboard groups panels. Layout is client-defined JSON (grid sizes, ordering hints).
+type Dashboard struct {
+	ID          string `gorm:"primaryKey"`
+	OwnerID     string `gorm:"column:owner_id"`
+	Title       string
+	Description string
+	Layout      string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// BeforeCreate assigns a UUID if none is set.
+func (d *Dashboard) BeforeCreate(*gorm.DB) error {
+	if d.ID == "" {
+		d.ID = uuid.NewString()
+	}
+	return nil
+}
+
+// Panel is one chart or log view on a dashboard.
+type Panel struct {
+	ID          string `gorm:"primaryKey"`
+	DashboardID string `gorm:"column:dashboard_id"`
+	Title       string
+	Type        string
+	Query       string
+	Step        string
+	Options     string
+	Position    int
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// BeforeCreate assigns a UUID if none is set.
+func (p *Panel) BeforeCreate(*gorm.DB) error {
+	if p.ID == "" {
+		p.ID = uuid.NewString()
+	}
+	return nil
+}

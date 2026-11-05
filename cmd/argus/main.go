@@ -105,6 +105,7 @@ func main() {
 	go func() { defer wg.Done(); jan.Run(bg, time.Hour) }()
 
 	ql := query.DefaultLimits()
+	ql.MaxMetricRange = cfg.QueryMetricRange
 	ql.MaxRange, ql.MaxBytesScanned, ql.Timeout, ql.PerUserConcurrency = cfg.QueryMaxRange, cfg.QueryMaxBytes, cfg.QueryTimeout, cfg.QueryConc
 
 	handler := api.NewRouter(&api.Server{

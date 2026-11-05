@@ -1,0 +1,99 @@
+query: count_over_time({service="api"}[5m])
+canon: count_over_time({service="api"} [5m])
+
+query: count_over_time({service="api"} |= "error" [5m])
+canon: count_over_time({service="api"} |= "error" [5m])
+
+query: rate({service="api"} | json | status>=500 [1h])
+canon: rate({service="api"} | json | status >= 500 [1h])
+
+query: bytes_over_time({service="api"}[30s])
+canon: bytes_over_time({service="api"} [30s])
+
+query: rate({service="api"}[250ms])
+canon: rate({service="api"} [250ms])
+
+query: rate({service="api"}[1.5h])
+canon: rate({service="api"} [1.5h])
+
+query: rate({service="api"}[2d])
+canon: rate({service="api"} [2d])
+
+query: sum(count_over_time({env="prod"}[1m]))
+canon: sum(count_over_time({env="prod"} [1m]))
+
+query: sum by (level) (count_over_time({env="prod"}[1m]))
+canon: sum by (level) (count_over_time({env="prod"} [1m]))
+
+query: sum by (level, route) (rate({env="prod"} | json [1m]))
+canon: sum by (level, route) (rate({env="prod"} | json [1m]))
+
+query: sum(rate({env="prod"}[1m])) by (level)
+canon: sum by (level) (rate({env="prod"} [1m]))
+
+query: topk(10, sum by (route) (count_over_time({service="api"} | json | status>=500 [1h])))
+canon: topk(10, sum by (route) (count_over_time({service="api"} | json | status >= 500 [1h])))
+
+query: topk(3, rate({service="api"}[5m]))
+canon: topk(3, rate({service="api"} [5m]))
+
+query: rate({service="api"})
+error: syntax error at position 20: expected '[', found ')'
+
+query: rate({service="api"}[5m]
+error: syntax error at position 24: expected ')', found end of query
+
+query: rate({service="api"}[5])
+error: syntax error at position 21: expected duration, found number
+
+query: rate({service="api"}[5x])
+error: syntax error at position 21: invalid duration "5x" (use ms, s, m, h, d or w, e.g. 5m)
+
+query: rate({service="api"}[0m])
+error: syntax error at position 21: invalid duration "0m" (use ms, s, m, h, d or w, e.g. 5m)
+
+query: rate(service="api"[5m])
+error: syntax error at position 5: expected '{', found identifier
+
+query: rate({service=~".*"}[5m])
+error: syntax error at position 19: selector must contain at least one matcher that cannot match an empty value, e.g. service="api"
+
+query: avg_over_time({service="api"}[5m])
+error: syntax error at position 0: unknown function "avg_over_time" (supported: count_over_time, rate, bytes_over_time, sum, topk)
+
+query: sum by () (rate({a="b"}[1m]))
+error: syntax error at position 10: by () needs at least one label
+
+query: sum by (a) (rate({a="b"}[1m])) by (b)
+error: syntax error at position 31: sum already has a by clause
+
+query: sum(topk(2, rate({a="b"}[1m])))
+error: syntax error at position 30: sum needs a range aggregation such as rate(...) or count_over_time(...)
+
+query: sum({a="b"})
+error: syntax error at position 4: expected a metric function (count_over_time, rate, bytes_over_time, sum, topk), found '{'
+
+query: topk(0, rate({a="b"}[1m]))
+error: syntax error at position 5: topk needs a whole number between 1 and 1000
+
+query: topk(1.5, rate({a="b"}[1m]))
+error: syntax error at position 5: topk needs a whole number between 1 and 1000
+
+query: topk(2 rate({a="b"}[1m]))
+error: syntax error at position 7: expected ',', found identifier
+
+query: topk(2, topk(3, rate({a="b"}[1m])))
+error: syntax error at position 34: topk cannot wrap another topk
+
+query: rate({a="b"}[1m]) extra
+error: syntax error at position 18: unexpected identifier after the metric expression
+
+query: {service="api"}
+error: syntax error at position 0: expected a metric function (count_over_time, rate, bytes_over_time, sum, topk), found '{'
+
+query: 
+error: syntax error at position 0: expected a metric function (count_over_time, rate, bytes_over_time, sum, topk), found end of query
+
+query: rate({a="b"} | json | level="x" [1m]) trailing
+error: syntax error at position 38: unexpected identifier after the metric expression
+

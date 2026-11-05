@@ -30,12 +30,18 @@ const (
 	tGte
 	tLt
 	tLte
+	tLParen
+	tRParen
+	tLBracket
+	tRBracket
+	tDuration // 5m, 30s, 1h, 2d, 1w, 250ms
 )
 
 var tokNames = map[tokKind]string{
 	tEOF: "end of query", tLBrace: "'{'", tRBrace: "'}'", tComma: "','", tIdent: "identifier",
 	tString: "string", tNumber: "number", tEq: "'='", tNeq: "'!='", tRe: "'=~'", tNre: "'!~'",
 	tPipe: "'|'", tPipeEq: "'|='", tPipeRe: "'|~'", tGt: "'>'", tGte: "'>='", tLt: "'<'", tLte: "'<='",
+	tLParen: "'('", tRParen: "')'", tLBracket: "'['", tRBracket: "']'", tDuration: "duration",
 }
 
 func (k tokKind) String() string { return tokNames[k] }
@@ -73,6 +79,14 @@ func lex(src string) ([]token, error) {
 		switch {
 		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
 			i++
+		case c == '(':
+			emit(tLParen, "", i, 1)
+		case c == ')':
+			emit(tRParen, "", i, 1)
+		case c == '[':
+			emit(tLBracket, "", i, 1)
+		case c == ']':
+			emit(tRBracket, "", i, 1)
 		case c == '{':
 			emit(tLBrace, "", i, 1)
 		case c == '}':
@@ -144,6 +158,16 @@ func lex(src string) ([]token, error) {
 			}
 			if _, err := strconv.ParseFloat(src[i:j], 64); err != nil {
 				return nil, &SyntaxError{i, fmt.Sprintf("invalid number %q", src[i:j])}
+			}
+			if k := j; k < len(src) && src[k] >= 'a' && src[k] <= 'z' { // a unit follows: 5m, 30s
+				for k < len(src) && src[k] >= 'a' && src[k] <= 'z' {
+					k++
+				}
+				if _, err := ParseDuration(src[i:k]); err != nil {
+					return nil, &SyntaxError{i, fmt.Sprintf("invalid duration %q (use ms, s, m, h, d or w, e.g. 5m)", src[i:k])}
+				}
+				emit(tDuration, src[i:k], i, k-i)
+				continue
 			}
 			emit(tNumber, src[i:j], i, j-i)
 		case isIdentStart(c):
