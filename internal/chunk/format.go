@@ -62,7 +62,10 @@ var TargetBlockBytes = 256 << 10
 var ErrCorrupt = errors.New("chunk: corrupt data")
 
 var (
-	zenc, _ = zstd.NewWriter(nil)
+	// Blocks are ~256 KiB and compressed independently, so a 1 MiB window loses
+	// nothing, while the default 8 MiB window made every concurrent encoder pin
+	// tens of MiB of history (the soak test measured ~250 MB held that way).
+	zenc, _ = zstd.NewWriter(nil, zstd.WithEncoderConcurrency(4), zstd.WithWindowSize(1<<20), zstd.WithLowerEncoderMem(true))
 	zdec, _ = zstd.NewReader(nil, zstd.WithDecoderMaxMemory(maxDecodedBlk))
 )
 
