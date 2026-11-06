@@ -91,7 +91,11 @@ func writeErr(w http.ResponseWriter, status int, code, msg string) {
 }
 
 func (h *Handler) authenticate(r *http.Request) (*models.APIKey, bool) {
-	k := r.Header.Get(KeyHeader)
+	return h.authenticateKey(r.Header.Get(KeyHeader))
+}
+
+// authenticateKey looks up an API key by its plaintext value and records its use.
+func (h *Handler) authenticateKey(k string) (*models.APIKey, bool) {
 	if k == "" {
 		return nil, false
 	}
@@ -135,13 +139,6 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 	var resp pushResponse
 	var batch []pending
 	var rawBytes int
-	reject := func(n int, msg string) {
-		resp.Rejected++
-		if len(resp.Errors) < maxErrorsEcho {
-			resp.Errors = append(resp.Errors, fmt.Sprintf("line %d: %s", n, msg))
-		}
-	}
-
 	sc := bufio.NewScanner(body)
 	sc.Buffer(make([]byte, 0, 64<<10), int(h.Limits.MaxBodyBytes))
 	for n := 1; sc.Scan(); n++ {
@@ -151,7 +148,7 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 		}
 		p, err := h.parseLine(raw, defaults, now)
 		if err != nil {
-			reject(n, err.Error())
+			resp.reject(n, err.Error())
 			continue
 		}
 		p.n = n
@@ -174,6 +171,43 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if f := h.commit(key, batch, rawBytes, now, &resp); f != nil {
+		f.write(w)
+		return
+	}
+	status := http.StatusOK
+	if resp.Accepted == 0 && resp.Rejected > 0 {
+		status = http.StatusBadRequest
+	}
+	writeJSON(w, status, resp)
+}
+
+// reject records a line that was refused; n is its 1-based position in the request.
+func (r *pushResponse) reject(n int, msg string) {
+	r.Rejected++
+	if len(r.Errors) < maxErrorsEcho {
+		r.Errors = append(r.Errors, fmt.Sprintf("line %d: %s", n, msg))
+	}
+}
+
+// failure is a request-level error from commit.
+type failure struct {
+	status     int
+	code, msg  string
+	retryAfter bool
+}
+
+func (f *failure) write(w http.ResponseWriter) {
+	if f.retryAfter {
+		w.Header().Set("Retry-After", "1")
+	}
+	writeErr(w, f.status, f.code, f.msg)
+}
+
+// commit applies the per-key rate limits, resolves streams and appends the
+// batch to the WAL, recording the outcome in resp. It is shared by every push
+// format (native NDJSON and Loki). A non-nil failure means nothing was stored.
+func (h *Handler) commit(key *models.APIKey, batch []pending, rawBytes int, now time.Time, resp *pushResponse) *failure {
 	if len(batch) > 0 {
 		lps := key.RateLimit
 		if lps <= 0 {
@@ -181,13 +215,10 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 		}
 		switch h.lim.take(key.ID, len(batch), rawBytes, lps, h.Limits.BytesPerSec, h.Limits.BurstFactor, now) {
 		case tooLarge:
-			writeErr(w, http.StatusRequestEntityTooLarge, "batch_too_large", "batch exceeds this key's burst capacity; send smaller batches")
-			return
+			return &failure{status: http.StatusRequestEntityTooLarge, code: "batch_too_large", msg: "batch exceeds this key's burst capacity; send smaller batches"}
 		case throttled:
 			h.Metrics.RateLimited()
-			w.Header().Set("Retry-After", "1")
-			writeErr(w, http.StatusTooManyRequests, "rate_limited", "rate limit exceeded for this API key")
-			return
+			return &failure{status: http.StatusTooManyRequests, code: "rate_limited", msg: "rate limit exceeded for this API key", retryAfter: true}
 		}
 	}
 
@@ -196,20 +227,20 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 	bad := map[string]string{}
 	for _, p := range batch {
 		if msg, skip := bad[p.text]; skip {
-			reject(p.n, msg)
+			resp.reject(p.n, msg)
 			continue
 		}
 		id, seen := ids[p.text]
 		if !seen {
+			var err error
 			id, err = h.Index.Resolve(key.ID, p.labels, h.Limits.MaxStreamsPerKey)
 			if errors.Is(err, index.ErrStreamLimit) {
 				bad[p.text] = err.Error()
-				reject(p.n, err.Error())
+				resp.reject(p.n, err.Error())
 				continue
 			}
 			if err != nil {
-				writeErr(w, http.StatusInternalServerError, "internal", "could not resolve stream")
-				return
+				return &failure{status: http.StatusInternalServerError, code: "internal", msg: "could not resolve stream"}
 			}
 			ids[p.text] = id
 		}
@@ -217,8 +248,7 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(recs) > 0 {
 		if err := h.Engine.Append(recs); err != nil {
-			writeErr(w, http.StatusInternalServerError, "internal", "could not persist lines")
-			return
+			return &failure{status: http.StatusInternalServerError, code: "internal", msg: "could not persist lines"}
 		}
 	}
 	resp.Accepted = len(recs)
@@ -229,11 +259,7 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 	h.Metrics.Accepted(resp.Accepted, accBytes)
 	h.Metrics.Rejected(resp.Rejected)
 	h.Metrics.Sampled(resp.Sampled)
-	status := http.StatusOK
-	if resp.Accepted == 0 && resp.Rejected > 0 {
-		status = http.StatusBadRequest
-	}
-	writeJSON(w, status, resp)
+	return nil
 }
 
 func (h *Handler) bodyReader(w http.ResponseWriter, r *http.Request) (io.Reader, error) {
@@ -261,11 +287,6 @@ func (h *Handler) parseLine(raw []byte, defaults map[string]string, now time.Tim
 	if err != nil {
 		return pending{}, err
 	}
-	if age := now.Sub(time.Unix(0, ts)); age > h.Limits.MaxAge {
-		return pending{}, fmt.Errorf("timestamp older than %s", h.Limits.MaxAge)
-	} else if -age > h.Limits.MaxFuture {
-		return pending{}, fmt.Errorf("timestamp more than %s in the future", h.Limits.MaxFuture)
-	}
 	labels := make(map[string]string, len(defaults)+len(in.Labels))
 	for k, v := range defaults {
 		labels[k] = v
@@ -273,10 +294,21 @@ func (h *Handler) parseLine(raw []byte, defaults map[string]string, now time.Tim
 	for k, v := range in.Labels {
 		labels[k] = v
 	}
+	return h.makePending(labels, ts, *in.Line, now)
+}
+
+// makePending validates one line's timestamp and labels against the limits and
+// returns it ready to commit. line must be non-empty.
+func (h *Handler) makePending(labels map[string]string, ts int64, line string, now time.Time) (pending, error) {
+	if age := now.Sub(time.Unix(0, ts)); age > h.Limits.MaxAge {
+		return pending{}, fmt.Errorf("timestamp older than %s", h.Limits.MaxAge)
+	} else if -age > h.Limits.MaxFuture {
+		return pending{}, fmt.Errorf("timestamp more than %s in the future", h.Limits.MaxFuture)
+	}
 	if err := h.validateLabels(labels); err != nil {
 		return pending{}, err
 	}
-	return pending{labels: labels, text: index.LabelsText(labels), ts: ts, line: h.truncate(*in.Line)}, nil
+	return pending{labels: labels, text: index.LabelsText(labels), ts: ts, line: h.truncate(line)}, nil
 }
 
 func (h *Handler) validateLabels(labels map[string]string) error {
