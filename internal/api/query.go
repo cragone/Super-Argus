@@ -81,9 +81,11 @@ func (s *Server) queryRange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, _ := PrincipalFrom(r.Context())
+	began := time.Now()
 	res, err := s.Query.Range(r.Context(), p.UserID, query.Request{
 		Query: qv.Get("query"), Start: start, End: end, Limit: limit, Backward: dir != "forward",
 	})
+	s.Metrics.Query("log", time.Since(began), err)
 	if err != nil {
 		writeQueryError(w, err)
 		return

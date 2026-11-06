@@ -5,12 +5,15 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/cragone/Super-Argus/internal/chunk"
 )
 
 // Pipeline is a compiled query: label matchers and line/field stages.
 type Pipeline struct {
 	Matchers []compiledMatcher
 	stages   []compiledStage
+	needles  []string
 	// HasParser reports whether any stage extracts fields (json/logfmt).
 	HasParser bool
 }
@@ -80,8 +83,18 @@ func Compile(q *Query) (*Pipeline, error) {
 			p.stages = append(p.stages, cs)
 		}
 	}
+	for i := range p.stages {
+		if st := &p.stages[i]; st.kind == stageLine && st.line.Op == OpEq && len(st.line.Value) >= chunk.MinNeedle {
+			p.needles = append(p.needles, st.line.Value)
+		}
+	}
 	return p, nil
 }
+
+// Needles returns the substrings every kept line must contain: the operands of
+// `|=` filters long enough for a chunk bloom filter to answer. Regex and
+// negated filters never contribute.
+func (p *Pipeline) Needles() []string { return p.needles }
 
 // MatchLabels reports whether a stream's labels satisfy every matcher.
 // A missing label behaves as the empty string.

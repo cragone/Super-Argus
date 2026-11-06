@@ -18,6 +18,7 @@ import (
 
 	"github.com/cragone/Super-Argus/internal/auth"
 	"github.com/cragone/Super-Argus/internal/index"
+	"github.com/cragone/Super-Argus/internal/metrics"
 	"github.com/cragone/Super-Argus/internal/models"
 	"github.com/cragone/Super-Argus/internal/wal"
 	"gorm.io/gorm"
@@ -43,6 +44,10 @@ type Handler struct {
 	Index  *index.Index
 	Limits Limits
 	Now    func() time.Time
+	// Policy redacts and samples lines before they are stored. Nil disables it.
+	Policy *Policy
+	// Metrics records ingest counters. Nil disables it.
+	Metrics *metrics.Set
 
 	lim     *limiter
 	touchMu sync.Mutex
@@ -71,6 +76,7 @@ type pending struct {
 type pushResponse struct {
 	Accepted int      `json:"accepted"`
 	Rejected int      `json:"rejected"`
+	Sampled  int      `json:"sampled,omitempty"` // dropped by the sampling policy
 	Errors   []string `json:"errors,omitempty"`
 }
 
@@ -149,6 +155,11 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		p.n = n
+		if !h.Policy.Keep(p.labels, p.line) {
+			resp.Sampled++
+			continue
+		}
+		p.line = h.Policy.Redact(p.line)
 		rawBytes += len(p.line)
 		batch = append(batch, p)
 	}
@@ -173,6 +184,7 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusRequestEntityTooLarge, "batch_too_large", "batch exceeds this key's burst capacity; send smaller batches")
 			return
 		case throttled:
+			h.Metrics.RateLimited()
 			w.Header().Set("Retry-After", "1")
 			writeErr(w, http.StatusTooManyRequests, "rate_limited", "rate limit exceeded for this API key")
 			return
@@ -210,6 +222,13 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	resp.Accepted = len(recs)
+	accBytes := 0
+	for _, rc := range recs {
+		accBytes += len(rc.Line)
+	}
+	h.Metrics.Accepted(resp.Accepted, accBytes)
+	h.Metrics.Rejected(resp.Rejected)
+	h.Metrics.Sampled(resp.Sampled)
 	status := http.StatusOK
 	if resp.Accepted == 0 && resp.Rejected > 0 {
 		status = http.StatusBadRequest

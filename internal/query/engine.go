@@ -314,7 +314,7 @@ func (s *Service) scanChunk(ctx context.Context, c models.Chunk, req Request, sc
 		return fmt.Errorf("chunk %s: %w", c.ID, err)
 	}
 	var scanErr error
-	err = r.Scan(req.Start, req.End, func(e chunk.Entry) bool {
+	err = r.ScanContaining(req.Start, req.End, scan.pipe.Needles(), func(e chunk.Entry) bool {
 		if scanErr = scan.line(ctx, local, c.StreamID, e); scanErr != nil {
 			return false
 		}

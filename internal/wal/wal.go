@@ -217,6 +217,24 @@ func (w *WAL) CurrentSeq() uint64 {
 	return w.seq
 }
 
+// DiskUsage returns the number of segment files and their total size.
+func (w *WAL) DiskUsage() (segments int, bytes int64) {
+	ents, err := os.ReadDir(w.dir)
+	if err != nil {
+		return 0, 0
+	}
+	for _, e := range ents {
+		if !strings.HasPrefix(e.Name(), segPrefix) || !strings.HasSuffix(e.Name(), segSuffix) {
+			continue
+		}
+		if fi, err := e.Info(); err == nil {
+			segments++
+			bytes += fi.Size()
+		}
+	}
+	return segments, bytes
+}
+
 // ReplayStats reports what Replay saw.
 type ReplayStats struct {
 	Records int

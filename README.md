@@ -165,3 +165,52 @@ An alert rule runs a **metric query** on a schedule and compares its latest valu
 - **In the app:** an **Alerts** tab (rules with state badges, last value, enable/disable, editor, history) and a *Notification channels* card in **Settings** for admins.
 
 Limitations: webhook is the only channel type (Slack, email and push are Phase 10). Rule evaluation uses the shared `ruler` query user, so it counts against that user's concurrency limit. The ruler runs inside the server process; run one server per data directory.
+
+## Performance and hardening (Phase 8)
+
+### Faster line filters: chunk bloom filters
+Each block of a chunk now carries a bloom filter over its 3-byte windows (trigrams). A `|= "text"` filter of **3 or more bytes** checks the filter and skips every block that cannot contain the text, without decompressing it. Regex (`|~`), negated (`!=`, `!~`) and shorter filters scan as before, and blocks are never skipped wrongly (a bloom has false positives, not false negatives).
+- Chunk format is now **version 2**. Version 1 chunks still read (they just cannot skip blocks), so no migration is needed and old data keeps working.
+- **Downgrading** to a binary from before this phase cannot read chunks written after the upgrade.
+- Cost: about 6 bits per distinct trigram, capped at 32 KiB per block (measured on two synthetic shapes: +20% for very repetitive logfmt lines, which compress best, and +8% for varied JSON lines; your data will differ). A test with a rare filter over 6,000 lines scanned under a quarter of them with identical results.
+- Metric queries (`count_over_time({...} |= "x" [5m])`) use the same filters.
+
+### Query tuning
+- `ARGUS_QUERY_WORKERS` sets the parallel chunk scanners per query (default: number of CPUs). Lower it on a shared host; raise it only if scans are I/O bound.
+- Metric results are cached for one step (Phase 6). Log queries are not cached: dashboard and Explore requests carry a new `start`/`end` each time, so a cache would almost never hit. The scan limits from Phase 3 (`ARGUS_QUERY_*`) still apply.
+
+### PII redaction and sampling at ingest
+Both run before the WAL write, so redacted text never touches disk. They are off unless set.
+- `ARGUS_REDACT`: comma list of `email`, `bearer`, `card`, `ip`, or `all`. Matches become `[REDACTED:<rule>]`. Patterns are heuristic (the card rule matches any 13-19 digit run, so it can redact long IDs). Stored data is not rewritten when you change the setting.
+- `ARGUS_SAMPLE`: `service=percent` pairs, e.g. `api=25,worker=10,*=50` keeps that percent of lines. Lines at **warn or above are always kept**, as are services with no rule and no `*`. Level comes from the `level` label, else a JSON `"level"`/`"severity"` field, else logfmt `level=`; a line with no detectable level counts as not important and is sampled. Dropped lines are reported as `sampled` in the push response, do not count against rate limits, and are not recoverable.
+
+### Operations
+- **`GET /readyz`** (no auth, 200 or 503) checks the database. `GET /healthz` stays a plain liveness check.
+- **`GET /metrics`** (Prometheus text) needs an admin session, or `Authorization: Bearer $ARGUS_METRICS_TOKEN` if that variable is set. Without either it answers 401. Metrics: ingest lines/bytes/rejected/sampled/rate-limited, chunks flushed and flush duration and errors, query duration and errors by kind (`log`, `metric`; alert evaluation is not counted), head lines (unflushed), WAL segments and bytes, open live tails, data directory size (cached 30s), uptime, goroutines, heap.
+- **Login lockout:** 5 failed sign-ins for one email lock it for 30s, doubling per further failure up to 15 minutes; 20 failures from one IP lock that IP the same way. A locked email is refused even with the right password (HTTP 429 with `Retry-After`). Counters decay after 15 quiet minutes, live in memory (a restart clears them) and use the TCP peer address, not `X-Forwarded-For`, so behind a reverse proxy all clients share one IP key and the per-email limit does the work.
+- **TLS:** set `ARGUS_TLS_CERT` and `ARGUS_TLS_KEY` (both or neither) to serve HTTPS directly.
+- **Graceful shutdown (SIGINT/SIGTERM):** live tails are told to reconnect, in-flight pushes drain (up to 15s), background loops stop, then head chunks are flushed and the WAL closed.
+
+### Backup and restore
+`argus backup <dir>` copies a **running** server's data (SQLite only; use `pg_dump` for Postgres). It writes `<dir>/wal`, `<dir>/argus.db` (a consistent `VACUUM INTO` snapshot) and `<dir>/chunks`, in that order, which can duplicate a line on restore but cannot lose one. Chunks are immutable, so running it again to the same directory copies only new chunks. It checks the snapshot (`integrity_check`) and reports indexed chunks missing from the copy (usually removed by retention in the meantime; not an error).
+```
+ARGUS_DATA_DIR=/var/lib/argus argus backup /backups/argus
+```
+Restore: stop the server, move the old data directory aside, then copy the backup's contents back and start:
+```
+mv /var/lib/argus /var/lib/argus.old && mkdir /var/lib/argus
+cp -r /backups/argus/. /var/lib/argus/
+argus
+```
+On start the server replays the WAL copy. Lines that were already flushed when the backup ran appear twice (replay is at-least-once). The destination must be outside the data directory. Channel secrets are encrypted with a key derived from `ARGUS_JWT_SECRET`, so restore with the same secret or re-enter them.
+
+### Soak test
+`ARGUS_SOAK_SECONDS=300 ARGUS_SOAK_RATE=2000 go test ./internal/ingest -run TestSoak -timeout 30m -v` alternates 5 seconds at the base rate with 5 seconds at 5x while a log query runs every 250ms and a metric query every second, then checks no line was lost, the slowest push stayed under 5s, queries had no errors, goroutines did not grow and live heap stayed flat (set `ARGUS_SOAK_HEAPPROFILE=<file>` to keep a heap profile for `go tool pprof`). Results on a development laptop (in-process, no network):
+
+| Run | Lines sent / stored | Push p99 / max | Heap, 2nd quarter to last quarter |
+|---|---|---|---|
+| 60s, base 2,000/s, burst 10,000/s (before fix) | 360,000 / 360,000 | n/a | 182 MB to 311 MB (failed) |
+| 60s, same load (after fix) | 360,000 / 360,000 | 17 ms / 103 ms | 17 MB to 25 MB |
+| 180s, same load (after fix) | 1,080,000 / 1,080,000 | 17 ms / 82 ms | 23 MB to 24 MB |
+
+The first run found a real problem: the zstd encoder's default 8 MiB window was pinned by every concurrent encoder, holding about 250 MB. Shrinking the window to 1 MiB (blocks are about 256 KiB) removed it with no format change. Limits of this evidence: the longest run is 3 minutes, not hours; the load is in-process through the HTTP handler, so network and TLS are not exercised; retention and alert evaluation were not running.

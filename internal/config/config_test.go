@@ -20,3 +20,17 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatalf("bad defaults: %+v", c)
 	}
 }
+
+func TestTLSSettingsMustBePaired(t *testing.T) {
+	t.Setenv("ARGUS_JWT_SECRET", "s")
+	t.Setenv("ARGUS_TLS_CERT", "cert.pem")
+	t.Setenv("ARGUS_TLS_KEY", "")
+	if _, err := Load(); err == nil {
+		t.Fatal("cert without key must be rejected")
+	}
+	t.Setenv("ARGUS_TLS_KEY", "key.pem")
+	c, err := Load()
+	if err != nil || c.TLSCert != "cert.pem" || c.TLSKey != "key.pem" {
+		t.Fatalf("paired TLS settings should load: %+v %v", c, err)
+	}
+}

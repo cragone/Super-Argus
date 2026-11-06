@@ -56,7 +56,9 @@ func (s *Server) queryMetric(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, _ := PrincipalFrom(r.Context())
+	began := time.Now()
 	res, err := s.Query.Metric(r.Context(), p.UserID, query.MetricRequest{Query: qv.Get("query"), Start: start, End: end, Step: step})
+	s.Metrics.Query("metric", time.Since(began), err)
 	if err != nil {
 		writeQueryError(w, err)
 		return

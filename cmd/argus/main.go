@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"gorm.io/gorm"
 
 	"github.com/cragone/Super-Argus/internal/api"
 	"github.com/cragone/Super-Argus/internal/auth"
@@ -21,8 +22,9 @@ import (
 	"github.com/cragone/Super-Argus/internal/config"
 	"github.com/cragone/Super-Argus/internal/db"
 	"github.com/cragone/Super-Argus/internal/index"
-	"github.com/cragone/Super-Argus/internal/notify"
 	"github.com/cragone/Super-Argus/internal/ingest"
+	"github.com/cragone/Super-Argus/internal/metrics"
+	"github.com/cragone/Super-Argus/internal/notify"
 	"github.com/cragone/Super-Argus/internal/query"
 	"github.com/cragone/Super-Argus/internal/retention"
 	"github.com/cragone/Super-Argus/internal/ruler"
@@ -55,6 +57,9 @@ func loadDotEnv() {
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	loadDotEnv()
+	if len(os.Args) > 1 {
+		os.Exit(runCommand(os.Args[1], os.Args[2:], log))
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		log.Error("config", "err", err)
@@ -87,6 +92,9 @@ func main() {
 	ix := index.New(g)
 	ecfg := ingest.DefaultEngineConfig()
 	ecfg.Log = log
+	reg := metrics.NewRegistry()
+	mset := metrics.NewSet(reg)
+	ecfg.Metrics = mset
 	eng := ingest.NewEngine(w, ix, store, ecfg)
 	hub := tail.New(tail.Config{PerUser: cfg.TailPerUser, Max: cfg.TailMax, Buffer: tail.DefaultConfig().Buffer})
 	eng.SetPublisher(hub)
@@ -99,6 +107,14 @@ func main() {
 	limits.DefaultLinesPerSec = cfg.RateLines
 	limits.BytesPerSec = cfg.RateBytes
 
+	registerGauges(reg, cfg.DataDir, eng, w, hub)
+
+	policy, err := ingest.ParsePolicy(cfg.Redact, cfg.Sample)
+	if err != nil {
+		log.Error("ingest policy", "err", err)
+		os.Exit(1)
+	}
+
 	bg, stopBG := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -108,6 +124,7 @@ func main() {
 
 	ql := query.DefaultLimits()
 	ql.MaxMetricRange = cfg.QueryMetricRange
+	ql.Workers = cfg.QueryWorkers
 	ql.MaxRange, ql.MaxBytesScanned, ql.Timeout, ql.PerUserConcurrency = cfg.QueryMaxRange, cfg.QueryMaxBytes, cfg.QueryTimeout, cfg.QueryConc
 
 	qsvc := query.NewService(g, store, eng, ql)
@@ -126,21 +143,31 @@ func main() {
 	wg.Add(1)
 	go func() { defer wg.Done(); rl.Run(bg) }()
 
+	draining := make(chan struct{})
 	handler := api.NewRouter(&api.Server{
-		DB: g, Tokens: auth.NewTokenManager(cfg.JWTSecret),
-		Ingest:      ingest.NewHandler(g, eng, ix, limits),
-		Query:       qsvc,
-		Sealer:      sealer,
-		Notifier:    notifier,
-		Web:         webui.Handler(),
-		Tail:        hub,
-		Index:       ix,
-		CORSOrigins: api.ParseOrigins(cfg.CORSOrigins),
+		Draining: draining,
+		DB:       g, Tokens: auth.NewTokenManager(cfg.JWTSecret),
+		Ingest:       newIngest(g, eng, ix, limits, policy, mset),
+		Query:        qsvc,
+		Sealer:       sealer,
+		Notifier:     notifier,
+		Metrics:      mset,
+		MetricsToken: cfg.MetricsToken,
+		Web:          webui.Handler(),
+		Tail:         hub,
+		Index:        ix,
+		CORSOrigins:  api.ParseOrigins(cfg.CORSOrigins),
 	})
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
-		log.Info("listening", "addr", cfg.HTTPAddr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Info("listening", "addr", cfg.HTTPAddr, "tls", cfg.TLSCert != "")
+		var err error
+		if cfg.TLSCert != "" {
+			err = srv.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey)
+		} else {
+			err = srv.ListenAndServe()
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("server", "err", err)
 			os.Exit(1)
 		}
@@ -148,13 +175,26 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	<-ctx.Done()
+	log.Info("shutting down")
+	// Order matters: end live tails, stop accepting and drain in-flight pushes,
+	// stop the janitor/ruler/flush loops, then flush heads and close the WAL.
+	close(draining)
 	sctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(sctx) // stop accepting and drain in-flight pushes
+	if err := srv.Shutdown(sctx); err != nil {
+		log.Warn("http drain incomplete", "err", err)
+	}
 	stopBG()
 	wg.Wait()
 	if err := eng.Close(); err != nil { // flush head chunks, close WAL
 		log.Error("shutdown flush", "err", err)
 		os.Exit(1)
 	}
+}
+
+func newIngest(g *gorm.DB, eng *ingest.Engine, ix *index.Index, l ingest.Limits, p *ingest.Policy, m *metrics.Set) *ingest.Handler {
+	h := ingest.NewHandler(g, eng, ix, l)
+	h.Policy = p
+	h.Metrics = m
+	return h
 }

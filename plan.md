@@ -311,11 +311,12 @@ One codebase in `app/`, using Expo Router. Build web with `npx expo export --pla
 - *Done when:* a rule fires after `for_duration`, sends exactly one webhook, resolves correctly, survives restart without re-firing
 - *Status:* built. Verified: state machine table tests, ruler tests with a fake clock and a real webhook listener (exactly one webhook per firing, one on resolve, none across a simulated restart, cooldown suppression, error keeps state), webhook retry/backoff/HMAC tests, API tests (roles, validation, secrets never returned, cascade delete), Jest (89 tests). **Not run end to end in a browser or on a phone**, and the live ruler against a real ingest stream was not exercised; only the unit and API layers. Deviations: rule durations are strings (`5m`) rather than seconds; events are one row per transition (`pending|firing|resolved`) instead of a fired_at/resolved_at pair; channel list is editor-readable but shows only the URL host.
 
-**Phase 8: Performance and hardening**
+**Phase 8: Performance and hardening** ✅ *complete (see status)*
 - Per-block bloom filters for line filters, query result cache, parallel scan tuning
 - PII redaction and sampling rules, Prometheus `/metrics`, graceful shutdown, `argus backup`
 - Soak test at 5x burst; document findings
 - *Done when:* soak test passes with stable memory, and the README documents tuning and backup/restore
+- *Status:* built. Verified (`go test -race ./...` clean): bloom filter unit tests (no false negatives, v1 chunks still read, corrupt section rejected) and a query test showing identical results with most blocks skipped; redaction/sampling tests including through the push handler; metrics registry, `/metrics` auth and `/readyz` tests; login lockout tests with a fake clock; live-tail drain test; backup/restore round-trip tests plus a manual run of the real binary (`/readyz`, `/metrics`, `argus backup`); soak test (3 min at 2,000/s with 5x bursts and concurrent queries, nothing lost, heap flat), which found and fixed a ~250 MB zstd encoder memory hold. **Not done or not verified:** no multi-hour soak and no network/TLS load; TLS was not exercised against a real certificate; a separate query result cache for log queries was not built (metric results are already cached per step, and log windows rarely repeat); the app has no UI for metrics or backup. Deviations: sampling and redaction are configured by environment variables rather than stored rules; `/metrics` is hand-rolled (no Prometheus client dependency).
 
 **Phase 9: Client SDKs (small)**
 - Go `slog` handler and a Node/TS logger that batch, retry with backoff, bound their memory queue, and drop rather than block the host app

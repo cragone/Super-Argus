@@ -242,3 +242,17 @@ loop:
 	require.Positive(t, dropped, "the client must be told it missed lines")
 	t.Logf("client was told %d lines were dropped", dropped)
 }
+
+// Shutdown must not wait out open tails: draining tells them to reconnect elsewhere.
+func TestTailEndsWhenServerDrains(t *testing.T) {
+	r := newTailRig(t, tail.DefaultConfig())
+	drain := make(chan struct{})
+	r.e.srv.Draining = drain
+	_, ch, _ := r.open(`{service="api"}`, r.token)
+	require.Equal(t, "ready", next(t, ch, 2*time.Second).name)
+	close(drain)
+	require.Equal(t, "shutdown", next(t, ch, 2*time.Second).name)
+	_, ok := <-ch
+	require.False(t, ok, "server closed the stream")
+	require.Eventually(t, func() bool { return r.hub.Active() == 0 }, 2*time.Second, 10*time.Millisecond)
+}

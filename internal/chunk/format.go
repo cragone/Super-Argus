@@ -6,7 +6,10 @@
 //	header : "ARGC" | version u8 | streamID u64 | minTS i64 | maxTS i64
 //	blocks : zstd( repeated [ts delta varint | len uvarint | bytes] )
 //	index  : per block [offset u64 | compLen u32 | lines u32 | minTS i64 | maxTS i64]
+//	blooms : (version 2) per block [len u32 | trigram bloom bytes], see bloom.go
 //	trailer: numBlocks u32 | indexOffset u64 | "ARGE"
+//
+// Version 1 chunks (no blooms) remain readable.
 package chunk
 
 import (
@@ -42,13 +45,14 @@ type BlockInfo struct {
 }
 
 const (
-	magic         = "ARGC"
-	footerMagic   = "ARGE"
-	version       = 1
-	headerSize    = 4 + 1 + 8 + 8 + 8
-	indexEntrySz  = 8 + 4 + 4 + 8 + 8
-	trailerSize   = 4 + 8 + 4
-	maxDecodedBlk = 64 << 20
+	magic          = "ARGC"
+	footerMagic    = "ARGE"
+	version        = 2
+	versionNoBloom = 1
+	headerSize     = 4 + 1 + 8 + 8 + 8
+	indexEntrySz   = 8 + 4 + 4 + 8 + 8
+	trailerSize    = 4 + 8 + 4
+	maxDecodedBlk  = 64 << 20
 )
 
 // TargetBlockBytes is the raw size at which a block is closed.
@@ -58,7 +62,10 @@ var TargetBlockBytes = 256 << 10
 var ErrCorrupt = errors.New("chunk: corrupt data")
 
 var (
-	zenc, _ = zstd.NewWriter(nil)
+	// Blocks are ~256 KiB and compressed independently, so a 1 MiB window loses
+	// nothing, while the default 8 MiB window made every concurrent encoder pin
+	// tens of MiB of history (the soak test measured ~250 MB held that way).
+	zenc, _ = zstd.NewWriter(nil, zstd.WithEncoderConcurrency(4), zstd.WithWindowSize(1<<20), zstd.WithLowerEncoderMem(true))
 	zdec, _ = zstd.NewReader(nil, zstd.WithDecoderMaxMemory(maxDecodedBlk))
 )
 
@@ -80,6 +87,9 @@ func Encode(streamID uint64, entries []Entry) ([]byte, Meta, error) {
 	binary.BigEndian.PutUint64(out[21:], uint64(m.MaxTS))
 
 	var blocks []BlockInfo
+	var blooms []bloom
+	tg := trigramPool.Get().(*trigramSet)
+	defer trigramPool.Put(tg)
 	var raw []byte
 	var cur BlockInfo
 	var prev int64
@@ -92,6 +102,7 @@ func Encode(streamID uint64, entries []Entry) ([]byte, Meta, error) {
 		cur.CompLen = uint32(len(comp))
 		out = append(out, comp...)
 		blocks = append(blocks, cur)
+		blooms = append(blooms, tg.build())
 		m.BytesRaw += len(raw)
 		raw, cur, prev = raw[:0], BlockInfo{}, 0
 	}
@@ -105,6 +116,7 @@ func Encode(streamID uint64, entries []Entry) ([]byte, Meta, error) {
 		prev = e.TS
 		raw = binary.AppendUvarint(raw, uint64(len(e.Line)))
 		raw = append(raw, e.Line...)
+		tg.add(e.Line)
 		if len(raw) >= TargetBlockBytes {
 			flush()
 		}
@@ -119,6 +131,9 @@ func Encode(streamID uint64, entries []Entry) ([]byte, Meta, error) {
 		out = binary.BigEndian.AppendUint64(out, uint64(b.MinTS))
 		out = binary.BigEndian.AppendUint64(out, uint64(b.MaxTS))
 	}
+	for _, b := range blooms {
+		out = appendBloom(out, b)
+	}
 	out = binary.BigEndian.AppendUint32(out, uint32(len(blocks)))
 	out = binary.BigEndian.AppendUint64(out, indexOff)
 	out = append(out, footerMagic...)
@@ -131,12 +146,13 @@ type Reader struct {
 	data   []byte
 	Meta   Meta
 	Blocks []BlockInfo
+	blooms []bloom // nil for version 1 chunks
 }
 
 // NewReader parses the header and footer index of data.
 func NewReader(data []byte) (*Reader, error) {
-	if len(data) < headerSize+trailerSize || string(data[:4]) != magic || data[4] != version ||
-		string(data[len(data)-4:]) != footerMagic {
+	if len(data) < headerSize+trailerSize || string(data[:4]) != magic ||
+		(data[4] != version && data[4] != versionNoBloom) || string(data[len(data)-4:]) != footerMagic {
 		return nil, ErrCorrupt
 	}
 	r := &Reader{data: data}
@@ -146,8 +162,21 @@ func NewReader(data []byte) (*Reader, error) {
 	t := data[len(data)-trailerSize:]
 	n := uint64(binary.BigEndian.Uint32(t))
 	idxOff := binary.BigEndian.Uint64(t[4:])
-	if idxOff < headerSize || idxOff+n*indexEntrySz != uint64(len(data)-trailerSize) {
+	end := uint64(len(data) - trailerSize)
+	if idxOff < headerSize || idxOff+n*indexEntrySz > end {
 		return nil, ErrCorrupt
+	}
+	idxEnd := idxOff + n*indexEntrySz
+	if data[4] == versionNoBloom {
+		if idxEnd != end {
+			return nil, ErrCorrupt
+		}
+	} else {
+		bl, ok := parseBlooms(data[idxEnd:end], int(n))
+		if !ok {
+			return nil, ErrCorrupt
+		}
+		r.blooms = bl
 	}
 	for i := 0; i < int(n); i++ {
 		e := data[int(idxOff)+i*indexEntrySz:]
@@ -170,8 +199,19 @@ func NewReader(data []byte) (*Reader, error) {
 // Scan calls fn for each entry with from <= ts < to, in timestamp order,
 // skipping blocks outside the range. fn returns false to stop early.
 func (r *Reader) Scan(from, to int64, fn func(Entry) bool) error {
-	for _, b := range r.Blocks {
+	return r.ScanContaining(from, to, nil, fn)
+}
+
+// ScanContaining is Scan that also skips blocks whose bloom proves they lack
+// one of the needles. Every needle must appear in a line for it to matter, so
+// callers pass the substrings of their `|=` filters. Lines inside surviving
+// blocks are not filtered; fn still sees them all.
+func (r *Reader) ScanContaining(from, to int64, needles []string, fn func(Entry) bool) error {
+	for bi, b := range r.Blocks {
 		if b.MaxTS < from || b.MinTS >= to {
+			continue
+		}
+		if r.blooms != nil && !mayContainAll(r.blooms[bi], needles) {
 			continue
 		}
 		raw, err := zdec.DecodeAll(r.data[b.Offset:b.Offset+uint64(b.CompLen)], nil)
@@ -201,4 +241,13 @@ func (r *Reader) Scan(from, to int64, fn func(Entry) bool) error {
 		}
 	}
 	return nil
+}
+
+func mayContainAll(b bloom, needles []string) bool {
+	for _, n := range needles {
+		if !b.mayContain(n) {
+			return false
+		}
+	}
+	return true
 }

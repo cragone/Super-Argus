@@ -26,10 +26,16 @@ type Config struct {
 	QueryMaxRange    time.Duration
 	QueryMaxBytes    int64
 	QueryConc        int // concurrent queries per user
+	QueryWorkers     int // parallel chunk scanners per query (0 = number of CPUs)
 	QueryMetricRange time.Duration
 	CORSOrigins      string
 	TailPerUser      int
 	TailMax          int
+	TLSCert          string // ARGUS_TLS_CERT / ARGUS_TLS_KEY: serve HTTPS when both are set
+	TLSKey           string
+	MetricsToken     string // ARGUS_METRICS_TOKEN: bearer token for /metrics scrapers
+	Redact           string // ARGUS_REDACT: email,bearer,card,ip or all
+	Sample           string // ARGUS_SAMPLE: service=percent,...
 }
 
 func env(k, def string) string {
@@ -48,8 +54,14 @@ func envInt(k string, def int) int {
 	return def
 }
 
-// Load reads configuration from the environment.
-func Load() (*Config, error) {
+// Load reads configuration from the environment for the server.
+func Load() (*Config, error) { return load(true) }
+
+// LoadTool reads configuration for command-line tools such as backup, which
+// do not need the JWT secret.
+func LoadTool() (*Config, error) { return load(false) }
+
+func load(needSecret bool) (*Config, error) {
 	c := &Config{
 		DataDir:       env("ARGUS_DATA_DIR", "./data"),
 		HTTPAddr:      env("ARGUS_HTTP_ADDR", ":8080"),
@@ -75,11 +87,19 @@ func Load() (*Config, error) {
 	}
 	c.QueryMaxBytes = int64(envInt("ARGUS_QUERY_MAX_BYTES_MB", 4096)) << 20
 	c.QueryConc = envInt("ARGUS_QUERY_CONCURRENCY", 4)
+	c.QueryWorkers = envInt("ARGUS_QUERY_WORKERS", 0)
 	c.CORSOrigins = os.Getenv("ARGUS_CORS_ORIGINS")
 	c.TailPerUser = envInt("ARGUS_TAIL_PER_USER", 5)
 	c.TailMax = envInt("ARGUS_TAIL_MAX", 500)
+	c.TLSCert, c.TLSKey = os.Getenv("ARGUS_TLS_CERT"), os.Getenv("ARGUS_TLS_KEY")
+	if (c.TLSCert == "") != (c.TLSKey == "") {
+		return nil, errors.New("ARGUS_TLS_CERT and ARGUS_TLS_KEY must be set together")
+	}
+	c.MetricsToken = os.Getenv("ARGUS_METRICS_TOKEN")
+	c.Redact = os.Getenv("ARGUS_REDACT")
+	c.Sample = os.Getenv("ARGUS_SAMPLE")
 	c.DBDSN = env("ARGUS_DB_DSN", "sqlite:"+filepath.Join(c.DataDir, "argus.db"))
-	if c.JWTSecret == "" {
+	if needSecret && c.JWTSecret == "" {
 		return nil, errors.New("ARGUS_JWT_SECRET is required")
 	}
 	return c, nil
