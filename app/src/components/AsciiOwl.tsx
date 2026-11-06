@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Image, Platform, StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 
 // Where the pupil sits in owl-eye.jpg (643x360), as a fraction of the image.
 // The picture is positioned so this point lands in the middle of the screen.
@@ -84,7 +84,9 @@ export function AsciiOwl() {
       timer = setTimeout(render, 80);
     };
     img.onload = render;
-    img.src = Image.resolveAssetSource(require('../../assets/owl-eye.jpg'))?.uri ?? '';
+    // react-native-web has no Image.resolveAssetSource; its bundler resolves an image module to { uri, width, height }.
+    const mod: unknown = require('../../assets/owl-eye.jpg');
+    img.src = typeof mod === 'string' ? mod : ((mod as { uri?: string } | null)?.uri ?? '');
     window.addEventListener('resize', onResize);
     return () => {
       clearTimeout(timer);
