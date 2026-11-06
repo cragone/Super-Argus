@@ -150,3 +150,18 @@ REST resources under `/api/v1` (viewers read, editors and admins write): `/dashb
 - Chart colors are the validated reference palette from the dataviz guidance (fixed slot order, a series keeps its color when others appear or disappear). `node validate_palette.js` passes for both modes; light-mode contrast is low for three hues, which the legend and table view cover.
 
 Seed data for a demo: push an hour of traffic, then open the Dashboards tab.
+
+## Alerts (Phase 7)
+
+An alert rule runs a **metric query** on a schedule and compares its latest value to a threshold.
+
+- **Rule fields:** `query` (metric query, e.g. `sum(count_over_time({service="api"} |= "error" [5m]))`), `comparator` (`gt|gte|lt|lte|eq`), `threshold`, `window` (evaluation lookback, 15s to 1h, default 5m), `for_duration` (breach must persist this long, up to 24h), `cooldown` (minimum gap between firing notifications, up to 7d), `severity` (`info|warning|critical`), `enabled`, `notify_channel_ids`.
+- **Evaluation:** one ruler goroutine ticks every 15s. For each series it takes the newest point; a breaching series decides the value. No data reads as `0`, so "fewer than N lines" rules fire when logs stop. Evaluation errors (for example a limit) keep the current state and show in `last_error`.
+- **State machine:** `ok -> pending -> firing -> ok`. With `for_duration` of `0s` a breach fires immediately. A pending rule that recovers returns to `ok` silently. State is stored in `alert_states`, so a restart does not re-fire.
+- **Notifications:** sent on `firing` and on `resolved` (only if the firing was notified). A firing inside the `cooldown` window of the last notification is recorded but not sent, and its resolve is not sent either. Every transition (`pending`, `firing`, `resolved`) is stored in `alert_events` with the value and whether delivery succeeded.
+- **Webhooks:** JSON body `{status, rule_id, rule_name, severity, query, comparator, threshold, value, at}` where `status` is `firing`, `resolved` or `test`. Three attempts with 1s and 2s backoff on network errors, `5xx` and `429`; other `4xx` fail at once. If the channel has a secret, the body is signed: `X-Argus-Signature: sha256=<hex HMAC-SHA256>`.
+- **Channels** are admin-managed. Secrets are encrypted at rest (AES-GCM, key derived from `ARGUS_JWT_SECRET`, so **changing the JWT secret invalidates stored channel secrets**). The API never returns the URL or secret, only the host and `has_secret`.
+- **API** (`/api/v1`): viewers read `/alert-rules`, `/alert-events`; editors write `/alert-rules` and list `/channels`; admins write `/channels` and call `POST /channels/{id}/test`.
+- **In the app:** an **Alerts** tab (rules with state badges, last value, enable/disable, editor, history) and a *Notification channels* card in **Settings** for admins.
+
+Limitations: webhook is the only channel type (Slack, email and push are Phase 10). Rule evaluation uses the shared `ruler` query user, so it counts against that user's concurrency limit. The ruler runs inside the server process; run one server per data directory.

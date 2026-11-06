@@ -305,10 +305,11 @@ One codebase in `app/`, using Expo Router. Build web with `npx expo export --pla
 - *Done when:* a dashboard of four panels renders on mobile and web, and queries are cached for the step interval
 - *Status:* built. Verified: metric engine checked against a brute-force evaluator for 11 queries x 3 step sizes, golden parser tests, limits, step-aligned cache; dashboards/panels/saved-query API tests (roles, validation, cascade); Jest (78 tests); real Chrome run in light and dark: dashboard created through the UI, four panel types rendered, hover tooltip, table view, edit controls, rejected query shown. **Web only:** the dashboard has not been run on a phone or simulator (iOS/Android bundles compile; chart touch uses press-and-drag). Deviations: panels are moved and resized with buttons rather than drag handles; charts are custom `react-native-svg` (the plan allowed it). Top-N and stat panels use the newest point of the series. A pre-existing rule is kept: metric ranges are limited separately (default 31 days) from log ranges (7 days).
 
-**Phase 7: Alerts**
+**Phase 7: Alerts** ✅ *complete (see status)*
 - AlertRule, AlertState, AlertEvent, NotificationChannel migrations
 - Ruler, state machine, webhook notifier with retry, alert UI
 - *Done when:* a rule fires after `for_duration`, sends exactly one webhook, resolves correctly, survives restart without re-firing
+- *Status:* built. Verified: state machine table tests, ruler tests with a fake clock and a real webhook listener (exactly one webhook per firing, one on resolve, none across a simulated restart, cooldown suppression, error keeps state), webhook retry/backoff/HMAC tests, API tests (roles, validation, secrets never returned, cascade delete), Jest (89 tests). **Not run end to end in a browser or on a phone**, and the live ruler against a real ingest stream was not exercised; only the unit and API layers. Deviations: rule durations are strings (`5m`) rather than seconds; events are one row per transition (`pending|firing|resolved`) instead of a fired_at/resolved_at pair; channel list is editor-readable but shows only the URL host.
 
 **Phase 8: Performance and hardening**
 - Per-block bloom filters for line filters, query result cache, parallel scan tuning

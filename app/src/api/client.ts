@@ -9,6 +9,11 @@ export type Panel = components['schemas']['Panel'];
 export type Dashboard = components['schemas']['Dashboard'];
 export type MetricResponse = components['schemas']['MetricResponse'];
 export type SavedQuery = components['schemas']['SavedQuery'];
+export type AlertRule = components['schemas']['AlertRule'];
+export type AlertRuleInput = components['schemas']['AlertRuleInput'];
+export type AlertEvent = components['schemas']['AlertEvent'];
+export type Channel = components['schemas']['Channel'];
+export type ChannelInput = components['schemas']['ChannelInput'];
 
 /** What the API client needs from the session layer (injected to avoid an import cycle). */
 export interface SessionBridge {
