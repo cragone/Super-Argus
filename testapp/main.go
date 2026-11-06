@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/cragone/Super-Argus/testapp/internal/app"
-	"github.com/cragone/Super-Argus/testapp/internal/argus"
+	"github.com/cragone/Super-Argus/sdk/go/argus"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
