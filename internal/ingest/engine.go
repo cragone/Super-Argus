@@ -12,6 +12,7 @@ import (
 
 	"github.com/cragone/Super-Argus/internal/chunk"
 	"github.com/cragone/Super-Argus/internal/index"
+	"github.com/cragone/Super-Argus/internal/metrics"
 	"github.com/cragone/Super-Argus/internal/models"
 	"github.com/cragone/Super-Argus/internal/wal"
 	"github.com/google/uuid"
@@ -24,6 +25,7 @@ type EngineConfig struct {
 	TickEvery    time.Duration // how often Run checks heads and persists last_seen
 	Now          func() time.Time
 	Log          *slog.Logger
+	Metrics      *metrics.Set // optional
 }
 
 // DefaultEngineConfig returns the production defaults.
@@ -191,19 +193,23 @@ func (e *Engine) flush(pred func(*chunk.Head) bool) error {
 	}
 	e.mu.Unlock()
 
+	began := time.Now()
 	var errs []error
+	failed := 0
 	for _, h := range taken {
 		err := e.writeChunk(h)
 		e.mu.Lock()
 		delete(e.flushing, h)
 		if err != nil {
 			errs = append(errs, err)
+			failed++
 			e.restoreLocked(h)
 		}
 		e.mu.Unlock()
 	}
 	if len(taken) > 0 {
 		errs = append(errs, e.checkpoint())
+		e.cfg.Metrics.Flush(len(taken)-failed, time.Since(began), errors.Join(errs...))
 	}
 	return errors.Join(errs...)
 }

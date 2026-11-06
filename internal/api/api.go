@@ -9,6 +9,7 @@ import (
 	"github.com/cragone/Super-Argus/internal/auth"
 	"github.com/cragone/Super-Argus/internal/index"
 	"github.com/cragone/Super-Argus/internal/ingest"
+	"github.com/cragone/Super-Argus/internal/metrics"
 	"github.com/cragone/Super-Argus/internal/models"
 	"github.com/cragone/Super-Argus/internal/notify"
 	"github.com/cragone/Super-Argus/internal/query"
@@ -35,6 +36,12 @@ type Server struct {
 	// (used by POST /channels/{id}/test). Nil Notifier disables testing.
 	Sealer   *notify.Sealer
 	Notifier notify.Notifier
+	// Metrics enables GET /metrics; MetricsToken optionally lets a scraper
+	// authenticate with a static bearer token instead of an admin session.
+	Metrics      *metrics.Set
+	MetricsToken string
+	// ReadyChecks are extra probes for GET /readyz (the database is always checked).
+	ReadyChecks []ReadyCheck
 	// CORSOrigins lists browser origins allowed to call the API cross-origin.
 	CORSOrigins []string
 }
@@ -46,6 +53,10 @@ func NewRouter(s *Server) http.Handler {
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	r.Get("/readyz", s.readyz)
+	if s.Metrics != nil {
+		r.Method(http.MethodGet, "/metrics", s.metricsHandler())
+	}
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/login", s.login)
@@ -110,7 +121,7 @@ func NewRouter(s *Server) http.Handler {
 		})
 	})
 	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
-		if s.Web == nil || strings.HasPrefix(req.URL.Path, "/api/") || req.URL.Path == "/healthz" {
+		if s.Web == nil || strings.HasPrefix(req.URL.Path, "/api/") || req.URL.Path == "/healthz" || req.URL.Path == "/readyz" || req.URL.Path == "/metrics" {
 			writeError(w, http.StatusNotFound, "not_found", "no such route")
 			return
 		}

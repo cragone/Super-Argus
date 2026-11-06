@@ -1,10 +1,12 @@
 package ingest
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"testing"
 
+	"github.com/cragone/Super-Argus/internal/metrics"
 	"github.com/stretchr/testify/require"
 )
 
@@ -95,4 +97,30 @@ func TestPushAppliesPolicy(t *testing.T) {
 	require.Equal(t, 1, got[`{"level":"error","msg":"mail [REDACTED:email] failed"}`])
 	require.Equal(t, 1, got["job for [REDACTED:email] done"])
 	require.NotContains(t, fmt.Sprint(got), "example.com", "redacted before the WAL, so it never reaches a chunk")
+}
+
+func TestPushRecordsMetrics(t *testing.T) {
+	r := newRig(t)
+	reg := metrics.NewRegistry()
+	set := metrics.NewSet(reg)
+	r.h.Metrics = set
+	r.eng.cfg.Metrics = set
+	p, _ := ParsePolicy("", "api=0")
+	r.h.Policy = p
+
+	rec := r.push(line(t0, "worker", "hello")+line(t0, "api", "dropped")+"not json\n", nil)
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+
+	var out bytes.Buffer
+	reg.Write(&out)
+	s := out.String()
+	require.Contains(t, s, "argus_ingest_lines_total 1\n")
+	require.Contains(t, s, "argus_ingest_bytes_total 5\n")
+	require.Contains(t, s, "argus_ingest_rejected_lines_total 1\n")
+	require.Contains(t, s, "argus_ingest_sampled_lines_total 1\n")
+
+	require.NoError(t, r.eng.FlushAll())
+	out.Reset()
+	reg.Write(&out)
+	require.Contains(t, out.String(), "argus_chunks_flushed_total 1\n")
 }

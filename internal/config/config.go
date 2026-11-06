@@ -30,6 +30,7 @@ type Config struct {
 	CORSOrigins      string
 	TailPerUser      int
 	TailMax          int
+	MetricsToken     string // ARGUS_METRICS_TOKEN: bearer token for /metrics scrapers
 	Redact           string // ARGUS_REDACT: email,bearer,card,ip or all
 	Sample           string // ARGUS_SAMPLE: service=percent,...
 }
@@ -80,6 +81,7 @@ func Load() (*Config, error) {
 	c.CORSOrigins = os.Getenv("ARGUS_CORS_ORIGINS")
 	c.TailPerUser = envInt("ARGUS_TAIL_PER_USER", 5)
 	c.TailMax = envInt("ARGUS_TAIL_MAX", 500)
+	c.MetricsToken = os.Getenv("ARGUS_METRICS_TOKEN")
 	c.Redact = os.Getenv("ARGUS_REDACT")
 	c.Sample = os.Getenv("ARGUS_SAMPLE")
 	c.DBDSN = env("ARGUS_DB_DSN", "sqlite:"+filepath.Join(c.DataDir, "argus.db"))

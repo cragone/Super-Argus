@@ -22,8 +22,9 @@ import (
 	"github.com/cragone/Super-Argus/internal/config"
 	"github.com/cragone/Super-Argus/internal/db"
 	"github.com/cragone/Super-Argus/internal/index"
-	"github.com/cragone/Super-Argus/internal/notify"
 	"github.com/cragone/Super-Argus/internal/ingest"
+	"github.com/cragone/Super-Argus/internal/metrics"
+	"github.com/cragone/Super-Argus/internal/notify"
 	"github.com/cragone/Super-Argus/internal/query"
 	"github.com/cragone/Super-Argus/internal/retention"
 	"github.com/cragone/Super-Argus/internal/ruler"
@@ -88,6 +89,9 @@ func main() {
 	ix := index.New(g)
 	ecfg := ingest.DefaultEngineConfig()
 	ecfg.Log = log
+	reg := metrics.NewRegistry()
+	mset := metrics.NewSet(reg)
+	ecfg.Metrics = mset
 	eng := ingest.NewEngine(w, ix, store, ecfg)
 	hub := tail.New(tail.Config{PerUser: cfg.TailPerUser, Max: cfg.TailMax, Buffer: tail.DefaultConfig().Buffer})
 	eng.SetPublisher(hub)
@@ -99,6 +103,8 @@ func main() {
 	limits.MaxStreamsPerKey = cfg.MaxStreams
 	limits.DefaultLinesPerSec = cfg.RateLines
 	limits.BytesPerSec = cfg.RateBytes
+
+	registerGauges(reg, cfg.DataDir, eng, w, hub)
 
 	policy, err := ingest.ParsePolicy(cfg.Redact, cfg.Sample)
 	if err != nil {
@@ -135,14 +141,16 @@ func main() {
 
 	handler := api.NewRouter(&api.Server{
 		DB: g, Tokens: auth.NewTokenManager(cfg.JWTSecret),
-		Ingest:      newIngest(g, eng, ix, limits, policy),
-		Query:       qsvc,
-		Sealer:      sealer,
-		Notifier:    notifier,
-		Web:         webui.Handler(),
-		Tail:        hub,
-		Index:       ix,
-		CORSOrigins: api.ParseOrigins(cfg.CORSOrigins),
+		Ingest:       newIngest(g, eng, ix, limits, policy, mset),
+		Query:        qsvc,
+		Sealer:       sealer,
+		Notifier:     notifier,
+		Metrics:      mset,
+		MetricsToken: cfg.MetricsToken,
+		Web:          webui.Handler(),
+		Tail:         hub,
+		Index:        ix,
+		CORSOrigins:  api.ParseOrigins(cfg.CORSOrigins),
 	})
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
@@ -166,8 +174,9 @@ func main() {
 	}
 }
 
-func newIngest(g *gorm.DB, eng *ingest.Engine, ix *index.Index, l ingest.Limits, p *ingest.Policy) *ingest.Handler {
+func newIngest(g *gorm.DB, eng *ingest.Engine, ix *index.Index, l ingest.Limits, p *ingest.Policy, m *metrics.Set) *ingest.Handler {
 	h := ingest.NewHandler(g, eng, ix, l)
 	h.Policy = p
+	h.Metrics = m
 	return h
 }
