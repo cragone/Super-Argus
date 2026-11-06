@@ -57,6 +57,9 @@ func loadDotEnv() {
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	loadDotEnv()
+	if len(os.Args) > 1 {
+		os.Exit(runCommand(os.Args[1], os.Args[2:], log))
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		log.Error("config", "err", err)
@@ -139,8 +142,10 @@ func main() {
 	wg.Add(1)
 	go func() { defer wg.Done(); rl.Run(bg) }()
 
+	draining := make(chan struct{})
 	handler := api.NewRouter(&api.Server{
-		DB: g, Tokens: auth.NewTokenManager(cfg.JWTSecret),
+		Draining: draining,
+		DB:       g, Tokens: auth.NewTokenManager(cfg.JWTSecret),
 		Ingest:       newIngest(g, eng, ix, limits, policy, mset),
 		Query:        qsvc,
 		Sealer:       sealer,
@@ -154,8 +159,14 @@ func main() {
 	})
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
-		log.Info("listening", "addr", cfg.HTTPAddr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Info("listening", "addr", cfg.HTTPAddr, "tls", cfg.TLSCert != "")
+		var err error
+		if cfg.TLSCert != "" {
+			err = srv.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey)
+		} else {
+			err = srv.ListenAndServe()
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("server", "err", err)
 			os.Exit(1)
 		}
@@ -163,9 +174,15 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	<-ctx.Done()
+	log.Info("shutting down")
+	// Order matters: end live tails, stop accepting and drain in-flight pushes,
+	// stop the janitor/ruler/flush loops, then flush heads and close the WAL.
+	close(draining)
 	sctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(sctx) // stop accepting and drain in-flight pushes
+	if err := srv.Shutdown(sctx); err != nil {
+		log.Warn("http drain incomplete", "err", err)
+	}
 	stopBG()
 	wg.Wait()
 	if err := eng.Close(); err != nil { // flush head chunks, close WAL

@@ -53,8 +53,14 @@ func envInt(k string, def int) int {
 	return def
 }
 
-// Load reads configuration from the environment.
-func Load() (*Config, error) {
+// Load reads configuration from the environment for the server.
+func Load() (*Config, error) { return load(true) }
+
+// LoadTool reads configuration for command-line tools such as backup, which
+// do not need the JWT secret.
+func LoadTool() (*Config, error) { return load(false) }
+
+func load(needSecret bool) (*Config, error) {
 	c := &Config{
 		DataDir:       env("ARGUS_DATA_DIR", "./data"),
 		HTTPAddr:      env("ARGUS_HTTP_ADDR", ":8080"),
@@ -91,7 +97,7 @@ func Load() (*Config, error) {
 	c.Redact = os.Getenv("ARGUS_REDACT")
 	c.Sample = os.Getenv("ARGUS_SAMPLE")
 	c.DBDSN = env("ARGUS_DB_DSN", "sqlite:"+filepath.Join(c.DataDir, "argus.db"))
-	if c.JWTSecret == "" {
+	if needSecret && c.JWTSecret == "" {
 		return nil, errors.New("ARGUS_JWT_SECRET is required")
 	}
 	return c, nil
