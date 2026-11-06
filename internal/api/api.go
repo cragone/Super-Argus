@@ -42,12 +42,16 @@ type Server struct {
 	MetricsToken string
 	// ReadyChecks are extra probes for GET /readyz (the database is always checked).
 	ReadyChecks []ReadyCheck
+	guard *loginGuard
 	// CORSOrigins lists browser origins allowed to call the API cross-origin.
 	CORSOrigins []string
 }
 
 // NewRouter builds the HTTP router.
 func NewRouter(s *Server) http.Handler {
+	if s.guard == nil {
+		s.guard = newLoginGuard()
+	}
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer, CORS(s.CORSOrigins))
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {

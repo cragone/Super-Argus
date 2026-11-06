@@ -64,21 +64,34 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
+	email := strings.ToLower(strings.TrimSpace(in.Email))
+	emailKey, ipKey := "e:"+email, "i:"+clientIP(r)
+	if wait := s.guard.retryAfter(emailKey, ipKey); wait > 0 {
+		w.Header().Set("Retry-After", retrySeconds(wait))
+		writeError(w, http.StatusTooManyRequests, "too_many_attempts", "too many failed sign-in attempts; try again later")
+		return
+	}
+	badCreds := func() {
+		s.guard.fail(emailKey, emailFailLimit)
+		s.guard.fail(ipKey, ipFailLimit)
+		writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
+	}
 	var u models.User
-	err := s.DB.Where("email = ?", strings.ToLower(strings.TrimSpace(in.Email))).First(&u).Error
+	err := s.DB.Where("email = ?", email).First(&u).Error
 	if err != nil {
 		auth.VerifyPassword(in.Password, dummyHash)
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			writeError(w, http.StatusInternalServerError, "internal", "lookup failed")
 			return
 		}
-		writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
+		badCreds()
 		return
 	}
 	if !auth.VerifyPassword(in.Password, u.PasswordHash) {
-		writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
+		badCreds()
 		return
 	}
+	s.guard.succeed(emailKey) // the IP counter is left to decay so a valid login cannot reset it
 	s.tokenPair(w, r, &u)
 }
 
