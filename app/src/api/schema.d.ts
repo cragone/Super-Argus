@@ -130,6 +130,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ingest/loki": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Loki-compatible push
+         * @description Accepts the Loki push API in JSON ({"streams":[{"stream":{...},"values":[["<unix ns>","line"]]}]}) or snappy-compressed protobuf (Content-Type application/x-protobuf), so Promtail, Grafana Alloy, Fluent Bit or Vector can point at Argus. Also served at /loki/api/v1/push, outside /api/v1. Authenticate with the API key as X-Argus-Key, a bearer token, or the basic-auth password. Structured metadata is ignored; label names are rewritten to [a-zA-Z0-9_].
+         */
+        post: operations["ingestLoki"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/query/range": {
         parameters: {
             query?: never;
@@ -332,6 +352,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/services": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Services (values of the service label) with activity and volume */
+        get: operations["listServices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/openapi.yaml": {
         parameters: {
             query?: never;
@@ -513,7 +550,30 @@ export interface components {
         PushResponse: {
             accepted: number;
             rejected: number;
+            /** @description Lines dropped by the server's sampling policy */
+            sampled?: number;
             errors?: string[];
+        };
+        ServiceList: {
+            label: string;
+            data: components["schemas"]["Service"][];
+        };
+        Service: {
+            name: string;
+            /** Format: date-time */
+            first_seen: string;
+            /** Format: date-time */
+            last_seen: string;
+            /** @description Seen within the last minute */
+            active: boolean;
+            streams: number;
+            /**
+             * Format: int64
+             * @description Flushed lines in the window
+             */
+            lines: number;
+            /** Format: int64 */
+            bytes: number;
         };
         StringList: {
             data: string[];
@@ -929,6 +989,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PushResponse"];
                 };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            413: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+        };
+    };
+    ingestLoki: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+                "application/x-protobuf": string;
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
@@ -1366,6 +1455,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StringList"];
+                };
+            };
+        };
+    };
+    listServices: {
+        parameters: {
+            query?: {
+                label?: string;
+                /** @description RFC3339 or unix nanoseconds */
+                start?: components["parameters"]["Start"];
+                /** @description RFC3339 or unix nanoseconds */
+                end?: components["parameters"]["End"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Services, active first then by name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceList"];
                 };
             };
         };

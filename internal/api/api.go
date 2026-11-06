@@ -89,6 +89,7 @@ func NewRouter(s *Server) http.Handler {
 					r.Get("/query/metric", s.queryMetric)
 					r.Get("/labels", s.labelNames)
 					r.Get("/labels/{name}/values", s.labelValues)
+					r.Get("/services", s.listServices)
 				})
 			}
 			r.Group(func(r chi.Router) {

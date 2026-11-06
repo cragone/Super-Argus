@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cragone/Super-Argus/testapp/internal/dotenv"
 )
 
 type route struct {
@@ -66,13 +68,33 @@ func pick(r *rand.Rand) route {
 	return routes[0]
 }
 
+// testappURL is the test app's address from TESTAPP_ADDR (":9090" or "host:port").
+func testappURL() string {
+	addr := os.Getenv("TESTAPP_ADDR")
+	if addr == "" {
+		addr = ":9090"
+	}
+	if strings.HasPrefix(addr, ":") {
+		addr = "localhost" + addr
+	}
+	return "http://" + addr
+}
+
+func envOr(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
+}
+
 func main() {
-	target := flag.String("url", "http://localhost:9090", "test app base URL")
+	_ = dotenv.Load(".env") // same file the test app reads; flags still win
+	target := flag.String("url", testappURL(), "test app base URL (default from TESTAPP_ADDR)")
 	duration := flag.Duration("duration", time.Minute, "how long to run (0 = until Ctrl-C)")
 	rps := flag.Float64("rps", 10, "requests per second")
 	conc := flag.Int("concurrency", 4, "parallel workers")
 	dash := flag.Bool("dashboard", false, "create the \"Test app\" dashboard in Argus and exit")
-	argusURL := flag.String("argus", "http://localhost:8080", "Argus base URL (with -dashboard)")
+	argusURL := flag.String("argus", envOr("ARGUS_URL", "http://localhost:8080"), "Argus base URL (with -dashboard; default from ARGUS_URL)")
 	email := flag.String("email", os.Getenv("ARGUS_EMAIL"), "Argus admin/editor email (with -dashboard)")
 	password := flag.String("password", os.Getenv("ARGUS_PASSWORD"), "Argus password (with -dashboard)")
 	flag.Parse()

@@ -215,6 +215,14 @@ On start the server replays the WAL copy. Lines that were already flushed when t
 
 The first run found a real problem: the zstd encoder's default 8 MiB window was pinned by every concurrent encoder, holding about 250 MB. Shrinking the window to 1 MiB (blocks are about 256 KiB) removed it with no format change. Limits of this evidence: the longest run is 3 minutes, not hours; the load is in-process through the HTTP handler, so network and TLS are not exercised; retention and alert evaluation were not running.
 
+## Services and the agent
+
+The **Services** tab lists every value of the `service` label that has shipped logs, with an active dot, last-seen time and stored volume. Nothing is registered: a service appears the first time something ships a line with that label. Click one to watch its live stream, or switch to **History** to query older lines (pick a time range, filter by text, or start the filter with `|` for a pipeline such as `| json | level="error"`).
+
+`GET /api/v1/services` backs the list (optional `start`, `end`, and `label` to use a label other than `service`). Volume counts flushed chunks only, so it can lag the newest lines slightly.
+
+To get systemd units and Kubernetes pods in without configuring each one, run [`agent/`](agent/README.md) on the host or node. SDKs and Loki clients (Alloy, Promtail) work too, as long as they set a `service` label.
+
 ## Client SDKs and Loki-compatible push (Phase 9)
 
 ### SDKs

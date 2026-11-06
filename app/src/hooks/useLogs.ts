@@ -52,3 +52,16 @@ export function useRangeQuery(submitted: SubmittedQuery | null) {
     },
   });
 }
+
+/** Services (values of the `service` label) with activity and volume; polls so new ones appear. */
+export function useServices(range?: { start: string; end: string }) {
+  const signedIn = useSession((s) => s.status === 'signedIn');
+  return useQuery({
+    queryKey: ['services', range ?? null],
+    enabled: signedIn,
+    staleTime: 5_000,
+    refetchInterval: 10_000,
+    queryFn: async () =>
+      unwrap(await api.GET('/services', { params: { query: range ? { start: range.start, end: range.end } : {} } })).data,
+  });
+}
