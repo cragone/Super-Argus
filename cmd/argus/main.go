@@ -21,9 +21,11 @@ import (
 	"github.com/cragone/Super-Argus/internal/config"
 	"github.com/cragone/Super-Argus/internal/db"
 	"github.com/cragone/Super-Argus/internal/index"
+	"github.com/cragone/Super-Argus/internal/notify"
 	"github.com/cragone/Super-Argus/internal/ingest"
 	"github.com/cragone/Super-Argus/internal/query"
 	"github.com/cragone/Super-Argus/internal/retention"
+	"github.com/cragone/Super-Argus/internal/ruler"
 	"github.com/cragone/Super-Argus/internal/tail"
 	"github.com/cragone/Super-Argus/internal/wal"
 	"github.com/cragone/Super-Argus/internal/webui"
@@ -108,10 +110,28 @@ func main() {
 	ql.MaxMetricRange = cfg.QueryMetricRange
 	ql.MaxRange, ql.MaxBytesScanned, ql.Timeout, ql.PerUserConcurrency = cfg.QueryMaxRange, cfg.QueryMaxBytes, cfg.QueryTimeout, cfg.QueryConc
 
+	qsvc := query.NewService(g, store, eng, ql)
+	sealer := notify.NewSealer(cfg.JWTSecret)
+	notifier := &notify.Webhook{Sealer: sealer}
+	rl := &ruler.Ruler{
+		DB: g, Notifier: notifier, Log: log,
+		Query: func(ctx context.Context, req query.MetricRequest) (*query.MetricResult, error) {
+			return qsvc.Metric(ctx, "ruler", req)
+		},
+		Go: func(f func()) {
+			wg.Add(1)
+			go func() { defer wg.Done(); f() }()
+		},
+	}
+	wg.Add(1)
+	go func() { defer wg.Done(); rl.Run(bg) }()
+
 	handler := api.NewRouter(&api.Server{
 		DB: g, Tokens: auth.NewTokenManager(cfg.JWTSecret),
 		Ingest:      ingest.NewHandler(g, eng, ix, limits),
-		Query:       query.NewService(g, store, eng, ql),
+		Query:       qsvc,
+		Sealer:      sealer,
+		Notifier:    notifier,
 		Web:         webui.Handler(),
 		Tail:        hub,
 		Index:       ix,

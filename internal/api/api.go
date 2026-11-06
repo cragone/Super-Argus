@@ -10,6 +10,7 @@ import (
 	"github.com/cragone/Super-Argus/internal/index"
 	"github.com/cragone/Super-Argus/internal/ingest"
 	"github.com/cragone/Super-Argus/internal/models"
+	"github.com/cragone/Super-Argus/internal/notify"
 	"github.com/cragone/Super-Argus/internal/query"
 	"github.com/cragone/Super-Argus/internal/tail"
 	"github.com/go-chi/chi/v5"
@@ -30,6 +31,10 @@ type Server struct {
 	Index *index.Index
 	// Web serves the embedded web UI for non-API paths. Nil disables it.
 	Web http.Handler
+	// Sealer encrypts channel secrets; Notifier delivers alert notifications
+	// (used by POST /channels/{id}/test). Nil Notifier disables testing.
+	Sealer   *notify.Sealer
+	Notifier notify.Notifier
 	// CORSOrigins lists browser origins allowed to call the API cross-origin.
 	CORSOrigins []string
 }
@@ -68,6 +73,9 @@ func NewRouter(s *Server) http.Handler {
 				r.Get("/saved-queries", s.listSavedQueries)
 				r.Get("/dashboards", s.listDashboards)
 				r.Get("/dashboards/{id}", s.getDashboard)
+				r.Get("/alert-rules", s.listAlertRules)
+				r.Get("/alert-rules/{id}", s.getAlertRule)
+				r.Get("/alert-events", s.listAlertEvents)
 			})
 			r.Group(func(r chi.Router) {
 				r.Use(RequireRole(models.RoleEditor))
@@ -80,6 +88,10 @@ func NewRouter(s *Server) http.Handler {
 				r.Post("/dashboards/{id}/panels", s.createPanel)
 				r.Put("/dashboards/{id}/panels/{panelId}", s.updatePanel)
 				r.Delete("/dashboards/{id}/panels/{panelId}", s.deletePanel)
+				r.Post("/alert-rules", s.createAlertRule)
+				r.Put("/alert-rules/{id}", s.updateAlertRule)
+				r.Delete("/alert-rules/{id}", s.deleteAlertRule)
+				r.Get("/channels", s.listChannels)
 			})
 			if s.Tail != nil && s.Index != nil {
 				r.With(RequireRole(models.RoleViewer)).Get("/tail", s.tailStream)
@@ -90,6 +102,10 @@ func NewRouter(s *Server) http.Handler {
 				r.Get("/api-keys", s.listAPIKeys)
 				r.Post("/api-keys", s.createAPIKey)
 				r.Delete("/api-keys/{id}", s.revokeAPIKey)
+				r.Post("/channels", s.createChannel)
+				r.Put("/channels/{id}", s.updateChannel)
+				r.Delete("/channels/{id}", s.deleteChannel)
+				r.Post("/channels/{id}/test", s.testChannel)
 			})
 		})
 	})

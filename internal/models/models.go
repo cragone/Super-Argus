@@ -182,3 +182,88 @@ func (p *Panel) BeforeCreate(*gorm.DB) error {
 	}
 	return nil
 }
+
+// Alert states and event states.
+const (
+	AlertOK       = "ok"
+	AlertPending  = "pending"
+	AlertFiring   = "firing"
+	AlertResolved = "resolved" // event state only
+)
+
+// NotificationChannel is a destination for alert notifications. Config is JSON;
+// secrets inside it are encrypted by the notify package.
+type NotificationChannel struct {
+	ID        string `gorm:"primaryKey"`
+	Name      string
+	Type      string
+	Config    string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// BeforeCreate assigns a UUID if none is set.
+func (c *NotificationChannel) BeforeCreate(*gorm.DB) error {
+	if c.ID == "" {
+		c.ID = uuid.NewString()
+	}
+	return nil
+}
+
+// AlertRule fires when its metric query breaches Threshold for ForDuration.
+// Window, ForDuration and Cooldown are duration strings (5m, 30s).
+type AlertRule struct {
+	ID               string `gorm:"primaryKey"`
+	OwnerID          string `gorm:"column:owner_id"`
+	Name             string
+	Query            string
+	Comparator       string
+	Threshold        float64
+	Window           string `gorm:"column:lookback"`
+	ForDuration      string `gorm:"column:for_duration"`
+	Cooldown         string
+	Severity         string
+	Enabled          bool
+	NotifyChannelIDs string `gorm:"column:notify_channel_ids"` // JSON array of channel ids
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+// BeforeCreate assigns a UUID if none is set.
+func (r *AlertRule) BeforeCreate(*gorm.DB) error {
+	if r.ID == "" {
+		r.ID = uuid.NewString()
+	}
+	return nil
+}
+
+// AlertState is the persisted evaluation state of a rule, so restarts do not re-fire.
+type AlertState struct {
+	RuleID         string `gorm:"primaryKey;column:rule_id"`
+	State          string
+	Since          time.Time
+	LastEval       *time.Time `gorm:"column:last_eval"`
+	LastValue      float64    `gorm:"column:last_value"`
+	LastError      string     `gorm:"column:last_error"`
+	Notified       bool
+	LastNotifiedAt *time.Time `gorm:"column:last_notified_at"`
+}
+
+// AlertEvent records one state transition of a rule.
+type AlertEvent struct {
+	ID          string `gorm:"primaryKey"`
+	RuleID      string `gorm:"column:rule_id"`
+	State       string
+	Value       float64
+	At          time.Time
+	Notified    bool
+	NotifyError string `gorm:"column:notify_error"`
+}
+
+// BeforeCreate assigns a UUID if none is set.
+func (e *AlertEvent) BeforeCreate(*gorm.DB) error {
+	if e.ID == "" {
+		e.ID = uuid.NewString()
+	}
+	return nil
+}

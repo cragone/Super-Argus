@@ -386,6 +386,156 @@ paths:
           content:
             application/yaml:
               schema: { type: string }
+  /alert-rules:
+    get:
+      operationId: listAlertRules
+      summary: Alert rules with their current state
+      responses:
+        '200':
+          description: Rules
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/AlertRule' } }
+    post:
+      operationId: createAlertRule
+      summary: Create an alert rule (editor)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AlertRuleInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AlertRule' }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /alert-rules/{id}:
+    get:
+      operationId: getAlertRule
+      summary: One alert rule
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Rule
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AlertRule' }
+        '404': { $ref: '#/components/responses/Error' }
+    put:
+      operationId: updateAlertRule
+      summary: Update an alert rule (editor)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AlertRuleInput' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AlertRule' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: deleteAlertRule
+      summary: Delete an alert rule and its history (editor)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/Error' }
+  /alert-events:
+    get:
+      operationId: listAlertEvents
+      summary: Alert state transitions, newest first
+      parameters:
+        - { name: rule_id, in: query, required: false, schema: { type: string } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
+      responses:
+        '200':
+          description: Events
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/AlertEvent' } }
+        '400': { $ref: '#/components/responses/Error' }
+  /channels:
+    get:
+      operationId: listChannels
+      summary: Notification channels (editor; URLs are reduced to their host)
+      responses:
+        '200':
+          description: Channels
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Channel' } }
+    post:
+      operationId: createChannel
+      summary: Create a notification channel (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChannelInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Channel' }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /channels/{id}:
+    put:
+      operationId: updateChannel
+      summary: Update a notification channel (admin; omit url or secret to keep them)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChannelInput' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Channel' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: deleteChannel
+      summary: Delete a notification channel (admin)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/Error' }
+  /channels/{id}/test:
+    post:
+      operationId: testChannel
+      summary: Send a sample notification (admin)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Delivery result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: { type: boolean }
+                  error: { type: string }
+        '404': { $ref: '#/components/responses/Error' }
 security:
   - bearer: []
 components:
@@ -580,3 +730,76 @@ components:
         panels: { type: array, items: { $ref: '#/components/schemas/Panel' } }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    ChannelInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        type: { type: string, enum: [webhook], default: webhook }
+        url: { type: string, description: http(s) URL; required on create }
+        secret: { type: string, description: Optional HMAC signing secret (sent as X-Argus-Signature); omit to keep, empty to clear }
+    Channel:
+      type: object
+      required: [id, name, type, url_host, has_secret, created_at, updated_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        type: { type: string, enum: [webhook] }
+        url_host: { type: string }
+        has_secret: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AlertRuleInput:
+      type: object
+      required: [name, query, comparator, threshold]
+      properties:
+        name: { type: string }
+        query: { type: string, description: A metric query }
+        comparator: { type: string, enum: [gt, gte, lt, lte, eq] }
+        threshold: { type: number }
+        window: { type: string, description: 'Evaluation lookback, 15s to 1h', default: 5m }
+        for_duration: { type: string, description: 'Breach must persist this long before firing, up to 24h', default: 0s }
+        cooldown: { type: string, description: 'Minimum time between firing notifications, up to 7d', default: 0s }
+        severity: { type: string, enum: [info, warning, critical], default: warning }
+        enabled: { type: boolean, default: true }
+        notify_channel_ids: { type: array, items: { type: string } }
+    AlertState:
+      type: object
+      required: [state, since, last_eval, last_value, last_error]
+      properties:
+        state: { type: string, enum: [ok, pending, firing] }
+        since: { type: string, format: date-time }
+        last_eval: { type: string, format: date-time, nullable: true }
+        last_value: { type: number }
+        last_error: { type: string }
+    AlertRule:
+      type: object
+      required: [id, owner_id, name, query, comparator, threshold, window, for_duration, cooldown, severity, enabled, notify_channel_ids, state, created_at, updated_at]
+      properties:
+        id: { type: string }
+        owner_id: { type: string }
+        name: { type: string }
+        query: { type: string }
+        comparator: { type: string, enum: [gt, gte, lt, lte, eq] }
+        threshold: { type: number }
+        window: { type: string }
+        for_duration: { type: string }
+        cooldown: { type: string }
+        severity: { type: string, enum: [info, warning, critical] }
+        enabled: { type: boolean }
+        notify_channel_ids: { type: array, items: { type: string } }
+        state: { $ref: '#/components/schemas/AlertState' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AlertEvent:
+      type: object
+      required: [id, rule_id, rule_name, state, value, at, notified, notify_error]
+      properties:
+        id: { type: string }
+        rule_id: { type: string }
+        rule_name: { type: string }
+        state: { type: string, enum: [pending, firing, resolved] }
+        value: { type: number }
+        at: { type: string, format: date-time }
+        notified: { type: boolean }
+        notify_error: { type: string }
