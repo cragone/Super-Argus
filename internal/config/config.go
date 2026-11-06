@@ -26,6 +26,7 @@ type Config struct {
 	QueryMaxRange    time.Duration
 	QueryMaxBytes    int64
 	QueryConc        int // concurrent queries per user
+	QueryWorkers     int // parallel chunk scanners per query (0 = number of CPUs)
 	QueryMetricRange time.Duration
 	CORSOrigins      string
 	TailPerUser      int
@@ -86,6 +87,7 @@ func load(needSecret bool) (*Config, error) {
 	}
 	c.QueryMaxBytes = int64(envInt("ARGUS_QUERY_MAX_BYTES_MB", 4096)) << 20
 	c.QueryConc = envInt("ARGUS_QUERY_CONCURRENCY", 4)
+	c.QueryWorkers = envInt("ARGUS_QUERY_WORKERS", 0)
 	c.CORSOrigins = os.Getenv("ARGUS_CORS_ORIGINS")
 	c.TailPerUser = envInt("ARGUS_TAIL_PER_USER", 5)
 	c.TailMax = envInt("ARGUS_TAIL_MAX", 500)

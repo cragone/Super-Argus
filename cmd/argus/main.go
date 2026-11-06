@@ -124,6 +124,7 @@ func main() {
 
 	ql := query.DefaultLimits()
 	ql.MaxMetricRange = cfg.QueryMetricRange
+	ql.Workers = cfg.QueryWorkers
 	ql.MaxRange, ql.MaxBytesScanned, ql.Timeout, ql.PerUserConcurrency = cfg.QueryMaxRange, cfg.QueryMaxBytes, cfg.QueryTimeout, cfg.QueryConc
 
 	qsvc := query.NewService(g, store, eng, ql)
