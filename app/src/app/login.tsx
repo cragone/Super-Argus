@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { errorMessage } from '@/api/client';
 import { useSession } from '@/auth/session';
 import { isWeb } from '@/auth/storage';
 import { Button, ErrorText } from '@/components/ui';
+import { AsciiOwl } from '@/components/AsciiOwl';
 import { useTheme } from '@/theme';
 
 export default function LoginScreen() {
@@ -44,11 +45,33 @@ export default function LoginScreen() {
     fontSize: 16,
   } as const;
 
+  // Translucent so the owl shows around and faintly through it; sits over the pupil.
+  const card = {
+    width: '100%',
+    maxWidth: 400,
+    alignSelf: 'center',
+    gap: 14,
+    padding: 24,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: t.border,
+    backgroundColor: isWeb ? t.bg + 'e6' : 'transparent',
+  } as const;
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }}>
+      <AsciiOwl />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24 }} keyboardShouldPersistTaps="handled">
-          <View style={{ width: '100%', maxWidth: 420, alignSelf: 'center', gap: 14 }}>
+          <View style={card}>
+            {!isWeb && (
+              <Image
+                accessibilityLabel="Argus owl eye"
+                source={require('../../assets/owl-eye.jpg')}
+                resizeMode="cover"
+                style={{ width: '100%', aspectRatio: 16 / 9, borderRadius: 12 }}
+              />
+            )}
             <Text accessibilityRole="header" style={{ fontSize: 30, fontWeight: '700', color: t.text }}>
               Argus
             </Text>
@@ -68,14 +91,13 @@ export default function LoginScreen() {
               />
             )}
             <TextInput
-              accessibilityLabel="Email"
-              placeholder="Email"
+              accessibilityLabel="Username"
+              placeholder="Username"
               placeholderTextColor={t.textDim}
               value={email}
               onChangeText={setEmail}
               autoCapitalize="none"
               autoCorrect={false}
-              keyboardType="email-address"
               textContentType="username"
               style={field}
             />
