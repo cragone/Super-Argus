@@ -332,7 +332,7 @@ func (s *Service) evalMetric(ctx context.Context, p *metricPlan, start, end int6
 					continue
 				}
 				var lineErr error
-				err = r.Scan(from, to, func(e chunk.Entry) bool {
+				err = r.ScanContaining(from, to, p.pipe.Needles(), func(e chunk.Entry) bool {
 					lineErr = line(acc, c.StreamID, e)
 					return lineErr == nil
 				})
