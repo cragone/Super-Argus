@@ -349,6 +349,113 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/alert-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Alert rules with their current state */
+        get: operations["listAlertRules"];
+        put?: never;
+        /** Create an alert rule (editor) */
+        post: operations["createAlertRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/alert-rules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One alert rule */
+        get: operations["getAlertRule"];
+        /** Update an alert rule (editor) */
+        put: operations["updateAlertRule"];
+        post?: never;
+        /** Delete an alert rule and its history (editor) */
+        delete: operations["deleteAlertRule"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/alert-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Alert state transitions, newest first */
+        get: operations["listAlertEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Notification channels (editor; URLs are reduced to their host) */
+        get: operations["listChannels"];
+        put?: never;
+        /** Create a notification channel (admin) */
+        post: operations["createChannel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/channels/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update a notification channel (admin; omit url or secret to keep them) */
+        put: operations["updateChannel"];
+        post?: never;
+        /** Delete a notification channel (admin) */
+        delete: operations["deleteChannel"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/channels/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send a sample notification (admin) */
+        post: operations["testChannel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -518,6 +625,104 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        ChannelInput: {
+            name: string;
+            /**
+             * @default webhook
+             * @enum {string}
+             */
+            type: "webhook";
+            /** @description http(s) URL; required on create */
+            url?: string;
+            /** @description Optional HMAC signing secret (sent as X-Argus-Signature); omit to keep */
+            secret?: string;
+        };
+        Channel: {
+            id: string;
+            name: string;
+            /** @enum {string} */
+            type: "webhook";
+            url_host: string;
+            has_secret: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        AlertRuleInput: {
+            name: string;
+            /** @description A metric query */
+            query: string;
+            /** @enum {string} */
+            comparator: "gt" | "gte" | "lt" | "lte" | "eq";
+            threshold: number;
+            /**
+             * @description Evaluation lookback, 15s to 1h
+             * @default 5m
+             */
+            window: string;
+            /**
+             * @description Breach must persist this long before firing, up to 24h
+             * @default 0s
+             */
+            for_duration: string;
+            /**
+             * @description Minimum time between firing notifications, up to 7d
+             * @default 0s
+             */
+            cooldown: string;
+            /**
+             * @default warning
+             * @enum {string}
+             */
+            severity: "info" | "warning" | "critical";
+            /** @default true */
+            enabled: boolean;
+            notify_channel_ids?: string[];
+        };
+        AlertState: {
+            /** @enum {string} */
+            state: "ok" | "pending" | "firing";
+            /** Format: date-time */
+            since: string;
+            /** Format: date-time */
+            last_eval: string | null;
+            last_value: number;
+            last_error: string;
+        };
+        AlertRule: {
+            id: string;
+            owner_id: string;
+            name: string;
+            query: string;
+            /** @enum {string} */
+            comparator: "gt" | "gte" | "lt" | "lte" | "eq";
+            threshold: number;
+            window: string;
+            for_duration: string;
+            cooldown: string;
+            /** @enum {string} */
+            severity: "info" | "warning" | "critical";
+            enabled: boolean;
+            notify_channel_ids: string[];
+            state: components["schemas"]["AlertState"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        AlertEvent: {
+            id: string;
+            rule_id: string;
+            rule_name: string;
+            /** @enum {string} */
+            state: "pending" | "firing" | "resolved";
+            value: number;
+            /** Format: date-time */
+            at: string;
+            notified: boolean;
+            notify_error: string;
         };
     };
     responses: {
@@ -1183,6 +1388,269 @@ export interface operations {
                     "application/yaml": string;
                 };
             };
+        };
+    };
+    listAlertRules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rules */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRule"][];
+                };
+            };
+        };
+    };
+    createAlertRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlertRuleInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRule"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+        };
+    };
+    getAlertRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rule */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRule"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    updateAlertRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlertRuleInput"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRule"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteAlertRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    listAlertEvents: {
+        parameters: {
+            query?: {
+                rule_id?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Events */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertEvent"][];
+                };
+            };
+            400: components["responses"]["Error"];
+        };
+    };
+    listChannels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Channels */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Channel"][];
+                };
+            };
+        };
+    };
+    createChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Channel"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+        };
+    };
+    updateChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelInput"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Channel"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    testChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Delivery result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                        error?: string;
+                    };
+                };
+            };
+            404: components["responses"]["Error"];
         };
     };
 }
