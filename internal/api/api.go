@@ -42,7 +42,10 @@ type Server struct {
 	MetricsToken string
 	// ReadyChecks are extra probes for GET /readyz (the database is always checked).
 	ReadyChecks []ReadyCheck
-	guard *loginGuard
+	// Draining is closed when the server begins shutting down so long-lived
+	// streams (live tail) end instead of holding up the drain. Nil is fine.
+	Draining <-chan struct{}
+	guard    *loginGuard
 	// CORSOrigins lists browser origins allowed to call the API cross-origin.
 	CORSOrigins []string
 }

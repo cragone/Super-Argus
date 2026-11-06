@@ -30,6 +30,8 @@ type Config struct {
 	CORSOrigins      string
 	TailPerUser      int
 	TailMax          int
+	TLSCert          string // ARGUS_TLS_CERT / ARGUS_TLS_KEY: serve HTTPS when both are set
+	TLSKey           string
 	MetricsToken     string // ARGUS_METRICS_TOKEN: bearer token for /metrics scrapers
 	Redact           string // ARGUS_REDACT: email,bearer,card,ip or all
 	Sample           string // ARGUS_SAMPLE: service=percent,...
@@ -81,6 +83,10 @@ func Load() (*Config, error) {
 	c.CORSOrigins = os.Getenv("ARGUS_CORS_ORIGINS")
 	c.TailPerUser = envInt("ARGUS_TAIL_PER_USER", 5)
 	c.TailMax = envInt("ARGUS_TAIL_MAX", 500)
+	c.TLSCert, c.TLSKey = os.Getenv("ARGUS_TLS_CERT"), os.Getenv("ARGUS_TLS_KEY")
+	if (c.TLSCert == "") != (c.TLSKey == "") {
+		return nil, errors.New("ARGUS_TLS_CERT and ARGUS_TLS_KEY must be set together")
+	}
 	c.MetricsToken = os.Getenv("ARGUS_METRICS_TOKEN")
 	c.Redact = os.Getenv("ARGUS_REDACT")
 	c.Sample = os.Getenv("ARGUS_SAMPLE")

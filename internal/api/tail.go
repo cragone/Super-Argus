@@ -101,6 +101,9 @@ func (s *Server) tailStream(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-s.Draining:
+			write([]byte("event: shutdown\ndata: {}\n\n"))
+			return
 		case <-expired:
 			write([]byte("event: expired\ndata: {}\n\n"))
 			return
