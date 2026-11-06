@@ -43,6 +43,8 @@ type Handler struct {
 	Index  *index.Index
 	Limits Limits
 	Now    func() time.Time
+	// Policy redacts and samples lines before they are stored. Nil disables it.
+	Policy *Policy
 
 	lim     *limiter
 	touchMu sync.Mutex
@@ -71,6 +73,7 @@ type pending struct {
 type pushResponse struct {
 	Accepted int      `json:"accepted"`
 	Rejected int      `json:"rejected"`
+	Sampled  int      `json:"sampled,omitempty"` // dropped by the sampling policy
 	Errors   []string `json:"errors,omitempty"`
 }
 
@@ -149,6 +152,11 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		p.n = n
+		if !h.Policy.Keep(p.labels, p.line) {
+			resp.Sampled++
+			continue
+		}
+		p.line = h.Policy.Redact(p.line)
 		rawBytes += len(p.line)
 		batch = append(batch, p)
 	}

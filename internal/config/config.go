@@ -30,6 +30,8 @@ type Config struct {
 	CORSOrigins      string
 	TailPerUser      int
 	TailMax          int
+	Redact           string // ARGUS_REDACT: email,bearer,card,ip or all
+	Sample           string // ARGUS_SAMPLE: service=percent,...
 }
 
 func env(k, def string) string {
@@ -78,6 +80,8 @@ func Load() (*Config, error) {
 	c.CORSOrigins = os.Getenv("ARGUS_CORS_ORIGINS")
 	c.TailPerUser = envInt("ARGUS_TAIL_PER_USER", 5)
 	c.TailMax = envInt("ARGUS_TAIL_MAX", 500)
+	c.Redact = os.Getenv("ARGUS_REDACT")
+	c.Sample = os.Getenv("ARGUS_SAMPLE")
 	c.DBDSN = env("ARGUS_DB_DSN", "sqlite:"+filepath.Join(c.DataDir, "argus.db"))
 	if c.JWTSecret == "" {
 		return nil, errors.New("ARGUS_JWT_SECRET is required")

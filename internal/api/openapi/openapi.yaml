@@ -619,6 +619,7 @@ components:
       properties:
         accepted: { type: integer }
         rejected: { type: integer }
+        sampled: { type: integer, description: Lines dropped by the server's sampling policy }
         errors: { type: array, items: { type: string } }
     StringList:
       type: object

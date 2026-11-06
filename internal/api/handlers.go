@@ -72,11 +72,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "internal", "lookup failed")
 			return
 		}
-		writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
+		writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
 		return
 	}
 	if !auth.VerifyPassword(in.Password, u.PasswordHash) {
-		writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
+		writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
 		return
 	}
 	s.tokenPair(w, r, &u)

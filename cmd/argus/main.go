@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"gorm.io/gorm"
 
 	"github.com/cragone/Super-Argus/internal/api"
 	"github.com/cragone/Super-Argus/internal/auth"
@@ -99,6 +100,12 @@ func main() {
 	limits.DefaultLinesPerSec = cfg.RateLines
 	limits.BytesPerSec = cfg.RateBytes
 
+	policy, err := ingest.ParsePolicy(cfg.Redact, cfg.Sample)
+	if err != nil {
+		log.Error("ingest policy", "err", err)
+		os.Exit(1)
+	}
+
 	bg, stopBG := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -128,7 +135,7 @@ func main() {
 
 	handler := api.NewRouter(&api.Server{
 		DB: g, Tokens: auth.NewTokenManager(cfg.JWTSecret),
-		Ingest:      ingest.NewHandler(g, eng, ix, limits),
+		Ingest:      newIngest(g, eng, ix, limits, policy),
 		Query:       qsvc,
 		Sealer:      sealer,
 		Notifier:    notifier,
@@ -157,4 +164,10 @@ func main() {
 		log.Error("shutdown flush", "err", err)
 		os.Exit(1)
 	}
+}
+
+func newIngest(g *gorm.DB, eng *ingest.Engine, ix *index.Index, l ingest.Limits, p *ingest.Policy) *ingest.Handler {
+	h := ingest.NewHandler(g, eng, ix, l)
+	h.Policy = p
+	return h
 }
