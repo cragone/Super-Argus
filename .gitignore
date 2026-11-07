@@ -43,3 +43,9 @@ internal/webui/dist/*
 testapp/*.db
 testapp/*.db-*
 testapp/testapp.exe
+testapp/.env.generated
+
+# nix / process-compose
+.direnv/
+process-compose.log
+.process-compose/
