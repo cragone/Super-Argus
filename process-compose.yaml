@@ -1,0 +1,46 @@
+version: "0.5"
+
+# Full local test env: starts Argus, mints (or reuses) a testapp ingest API
+# key, then starts testapp wired to it. Run from the repo root with
+# `nix run .#dev-env` (or `process-compose up` from inside `nix develop`).
+#
+# Toggle the `traffic` process from the TUI to generate sustained load
+# against testapp.
+
+processes:
+  argus:
+    command: "go run ./cmd/argus"
+    readiness_probe:
+      http_get:
+        host: 127.0.0.1
+        port: 8080
+        path: /healthz
+      initial_delay_seconds: 1
+      period_seconds: 1
+      failure_threshold: 60
+    availability:
+      restart: "no"
+
+  mint-key:
+    command: "./scripts/dev/mint-key.sh"
+    depends_on:
+      argus:
+        condition: process_healthy
+    availability:
+      restart: "no"
+
+  testapp:
+    command: "./scripts/dev/run-testapp.sh"
+    depends_on:
+      mint-key:
+        condition: process_completed_successfully
+    availability:
+      restart: "on_failure"
+      backoff_seconds: 2
+
+  traffic:
+    command: "./scripts/dev/run-traffic.sh"
+    disabled: true
+    depends_on:
+      testapp:
+        condition: process_started
