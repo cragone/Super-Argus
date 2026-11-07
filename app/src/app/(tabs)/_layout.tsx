@@ -16,7 +16,7 @@ export default function TabsLayout() {
         tabBarLabelPosition: 'beside-icon',
         tabBarLabelStyle: { fontSize: 15, fontWeight: '600' },
       }}>
-      <Tabs.Screen name="index" options={{ title: 'Explore' }} />
+      <Tabs.Screen name="services" options={{ title: 'Services', headerShown: false }} />
       <Tabs.Screen name="tail" options={{ title: 'Live Tail' }} />
       <Tabs.Screen name="dashboards" options={{ title: 'Dashboards', headerShown: false }} />
       <Tabs.Screen name="alerts" options={{ title: 'Alerts' }} />

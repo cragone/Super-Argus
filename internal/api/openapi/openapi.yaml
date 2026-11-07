@@ -122,6 +122,30 @@ paths:
         '401': { $ref: '#/components/responses/Error' }
         '413': { $ref: '#/components/responses/Error' }
         '429': { $ref: '#/components/responses/Error' }
+  /ingest/loki:
+    post:
+      operationId: ingestLoki
+      summary: Loki-compatible push
+      description: >
+        Accepts the Loki push API in JSON ({"streams":[{"stream":{...},"values":[["<unix ns>","line"]]}]})
+        or snappy-compressed protobuf (Content-Type application/x-protobuf), so Promtail, Grafana Alloy,
+        Fluent Bit or Vector can point at Argus. Also served at /loki/api/v1/push, outside /api/v1.
+        Authenticate with the API key as X-Argus-Key, a bearer token, or the basic-auth password.
+        Structured metadata is ignored; label names are rewritten to [a-zA-Z0-9_].
+      security: [ { apiKey: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+          application/x-protobuf:
+            schema: { type: string, format: binary }
+      responses:
+        '204': { description: Accepted }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
   /query/range:
     get:
       operationId: queryRange
@@ -375,6 +399,20 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/StringList' }
+  /services:
+    get:
+      operationId: listServices
+      summary: Services (values of the service label) with activity and volume
+      parameters:
+        - { name: label, in: query, schema: { type: string, default: service } }
+        - { $ref: '#/components/parameters/Start' }
+        - { $ref: '#/components/parameters/End' }
+      responses:
+        '200':
+          description: Services, active first then by name
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceList' }
   /openapi.yaml:
     get:
       operationId: getOpenApi
@@ -621,6 +659,25 @@ components:
         rejected: { type: integer }
         sampled: { type: integer, description: Lines dropped by the server's sampling policy }
         errors: { type: array, items: { type: string } }
+    ServiceList:
+      type: object
+      required: [label, data]
+      properties:
+        label: { type: string }
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Service' }
+    Service:
+      type: object
+      required: [name, first_seen, last_seen, active, streams, lines, bytes]
+      properties:
+        name: { type: string }
+        first_seen: { type: string, format: date-time }
+        last_seen: { type: string, format: date-time }
+        active: { type: boolean, description: Seen within the last minute }
+        streams: { type: integer }
+        lines: { type: integer, format: int64, description: Flushed lines in the window }
+        bytes: { type: integer, format: int64 }
     StringList:
       type: object
       required: [data]

@@ -8,7 +8,7 @@ It is its own Go module (`testapp/go.mod`), so gin and GORM stay out of Argus's 
 testapp/
   main.go                  the service (gin routes, GORM + SQLite, slog -> console + Argus)
   internal/app/            routes, request-log middleware, panic recovery, GORM -> slog adapter
-  internal/argus/          log shipper (batched, gzip, retry, never blocks) and slog handler
+  (log shipping comes from the Argus Go SDK in ../sdk/go: batched, gzip, retry, never blocks, slog handler)
   cmd/traffic/             traffic generator + "Test app" dashboard setup
 ```
 
@@ -107,7 +107,7 @@ Open **Live Tail** with `{service="testapp"} | json | level=~"error|warn"`, then
 
 ## How the shipper behaves
 
-`internal/argus` is the part worth copying into a real service:
+The shipper is the Argus Go SDK (`../sdk/go`, see its README), which is the part to use in a real service:
 
 - **Never blocks the request path.** Logging puts a line on a bounded queue (10,000). If Argus is slow or down and the queue fills, lines are dropped and counted, not waited on.
 - **Batches** (200 lines or 1 s), **gzips**, and sends NDJSON to `/api/v1/ingest/push`.
@@ -122,6 +122,6 @@ To see the "Argus is down" behavior, stop Argus while running the traffic genera
 cd testapp && go test -race ./...
 ```
 
-The route tests use a temp SQLite file; the shipper tests use `httptest` servers (batching, gzip, labels, retries, full queue, shutdown flush). The traffic tests check the route mix and the dashboard setup against a fake Argus.
+The route tests use a temp SQLite file; the shipper's own tests live in the SDK (`../sdk/go`). The traffic tests check the route mix and the dashboard setup against a fake Argus.
 
 Editors: because `testapp/` is a separate module, gopls may say it is "not included in your workspace". Add a local `go.work` (it is git-ignored) with `go work init . ./testapp`, or open `testapp/` on its own.

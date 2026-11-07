@@ -1,6 +1,8 @@
 // Command testapp is a local gin + GORM service that ships its logs to Argus,
 // so you can watch a real application's traffic in the Argus UI.
 //
+// Settings are read from the environment, and from ./.env for any that are unset.
+//
 //	ARGUS_URL      Argus base URL            (default http://localhost:8080)
 //	ARGUS_API_KEY  ingest key                (unset: logs go to the console only)
 //	TESTAPP_ADDR   listen address            (default :9090)
@@ -20,7 +22,8 @@ import (
 	"time"
 
 	"github.com/cragone/Super-Argus/testapp/internal/app"
-	"github.com/cragone/Super-Argus/testapp/internal/argus"
+	"github.com/cragone/Super-Argus/testapp/internal/dotenv"
+	"github.com/cragone/Super-Argus/sdk/go/argus"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -34,6 +37,9 @@ func env(k, def string) string {
 }
 
 func main() {
+	if err := dotenv.Load(".env"); err != nil {
+		log.Printf("reading .env: %v", err)
+	}
 	gin.SetMode(gin.ReleaseMode)
 
 	ship := argus.New(argus.Config{

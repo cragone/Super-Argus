@@ -1,0 +1,23 @@
+[Unit]
+Description=Argus log agent (ships journald logs to Argus)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# ARGUS_URL=http://argus:8080 and ARGUS_API_KEY=argus_xxx live in this file
+EnvironmentFile=/etc/argus-agent.env
+Environment=ARGUS_AGENT_MODE=journal
+Environment=ARGUS_STATE_DIR=/var/lib/argus-agent
+ExecStart=/usr/local/bin/argus-agent
+Restart=always
+RestartSec=5
+StateDirectory=argus-agent
+# reading the whole journal needs this group
+SupplementaryGroups=systemd-journal
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

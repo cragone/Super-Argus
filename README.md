@@ -214,3 +214,43 @@ On start the server replays the WAL copy. Lines that were already flushed when t
 | 180s, same load (after fix) | 1,080,000 / 1,080,000 | 17 ms / 82 ms | 23 MB to 24 MB |
 
 The first run found a real problem: the zstd encoder's default 8 MiB window was pinned by every concurrent encoder, holding about 250 MB. Shrinking the window to 1 MiB (blocks are about 256 KiB) removed it with no format change. Limits of this evidence: the longest run is 3 minutes, not hours; the load is in-process through the HTTP handler, so network and TLS are not exercised; retention and alert evaluation were not running.
+
+## Services and the agent
+
+The **Services** tab lists every value of the `service` label that has shipped logs, with an active dot, last-seen time and stored volume. Nothing is registered: a service appears the first time something ships a line with that label. Click one to watch its live stream, or switch to **History** to query older lines (pick a time range, filter by text, or start the filter with `|` for a pipeline such as `| json | level="error"`).
+
+`GET /api/v1/services` backs the list (optional `start`, `end`, and `label` to use a label other than `service`). Volume counts flushed chunks only, so it can lag the newest lines slightly.
+
+To get systemd units and Kubernetes pods in without configuring each one, run [`agent/`](agent/README.md) on the host or node. SDKs and Loki clients (Alloy, Promtail) work too, as long as they set a `service` label.
+
+## Client SDKs and Loki-compatible push (Phase 9)
+
+### SDKs
+Two small libraries ship an application's logs to Argus. Both are built so they cannot hurt the app: logging never blocks or throws, memory is bounded by a fixed-size queue, a full queue drops lines (and counts them), and failed sends are retried with backoff and then dropped. Details and options are in each README.
+
+| | Where | Use |
+|---|---|---|
+| **Go** | [`sdk/go`](sdk/go/README.md) (own module `github.com/cragone/Super-Argus/sdk/go`, standard library only) | a `log/slog` handler plus a raw `Send`; the testapp now uses it |
+| **Node/TypeScript** | [`sdk/node`](sdk/node/README.md) (`argus-logger`, no runtime dependencies, Node 18+) | `log.info('msg', {fields})`, `close()` to flush on exit; not published to npm yet |
+
+Delivery is at-least-once, and lines still queued when a process dies are lost.
+
+### Loki-compatible push
+`POST /api/v1/ingest/loki` (also at `/loki/api/v1/push`, the path Loki clients default to) accepts the Loki push API, so Promtail, Grafana Alloy, Fluent Bit or Vector can point at Argus unchanged. Both wire formats work: JSON (`{"streams":[{"stream":{...},"values":[["<unix ns>","line"]]}]}`) and snappy-compressed protobuf (`Content-Type: application/x-protobuf`, the Promtail/Alloy default). Gzip request bodies are accepted.
+- **Auth:** the Argus API key as `X-Argus-Key`, as a bearer token, or as the password (or username) of HTTP basic auth.
+- **Same pipeline as the native push:** per-key rate limits, stream limits, redaction and sampling, label rules and the age limits all apply. Success is `204`; a request where every line was refused is `400`.
+- **Labels:** names Loki would normalise (dots, dashes) are rewritten with underscores, so `app.name` is queried as `app_name`. Loki *structured metadata* is ignored.
+- **Not verified against real shippers.** It is tested with hand-built JSON and protobuf+snappy bodies matching Loki's wire format, not with a running Promtail, Alloy, Fluent Bit or Vector. Try yours against a non-production Argus first.
+
+### Does Argus going down affect an app? (`sdk/e2e/run.mjs`)
+`node sdk/e2e/run.mjs go` (or `node`) builds and starts the real server, runs a sample app that logs about 2,000 lines/s through the SDK, **hard-kills the server** 6 seconds in, leaves it down for 10 seconds, restarts it on the same data (WAL recovery), then compares what the app logged with what Argus stored. A run on a development laptop (Windows, everything on one machine, 28 seconds):
+
+| | Go SDK | Node SDK |
+|---|---|---|
+| Worst single log call, Argus up / **down** / recovered | 0.77 / **2.06** / 0.77 ms | 2.03 / **1.09** / 1.15 ms |
+| Lines the app logged | 56,000 | 34,460 |
+| Acknowledged by Argus | 45,381 | 31,400 |
+| Dropped by the SDK (queue full or retries exhausted) | 10,619 | 3,060 |
+| Stored in Argus after the restart | 45,381 | 31,400 |
+
+Every logged line is accounted for (sent plus dropped equals logged), logs flow again after the restart, and everything Argus acknowledged was still there after the crash. The script exits non-zero if any log call takes over 100 ms. The two SDKs differ in volume only because the Node sample's 10 ms timer fires about every 15 ms on Windows. Limits of this evidence: one machine, a single 10-second outage, a process kill rather than a power loss, and the sample apps are stand-ins rather than production services.

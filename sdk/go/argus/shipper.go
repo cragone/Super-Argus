@@ -1,8 +1,20 @@
 // Package argus ships structured logs to an Argus server.
 //
-// It is deliberately small and safe to put in a request path: logging never
-// blocks (a full queue drops lines and counts them), lines are batched and
-// gzipped, and failed sends are retried with backoff before being dropped.
+// It is deliberately small and safe to put in a request path:
+//
+//   - logging never blocks: when the in-memory queue is full the line is
+//     dropped and counted, so a slow or dead server cannot slow the application;
+//   - memory is bounded by QueueSize lines of at most MaxLineBytes each;
+//   - lines are batched and gzipped; failed sends are retried with exponential
+//     backoff (honouring Retry-After) and then dropped, never held forever;
+//   - the standard library is the only dependency.
+//
+// Typical use:
+//
+//	ship := argus.New(argus.Config{URL: "http://argus:8080", APIKey: key,
+//		Labels: map[string]string{"service": "api", "env": "prod"}})
+//	defer ship.Close(context.Background())
+//	log := slog.New(argus.Tee(slog.NewTextHandler(os.Stderr, nil), ship.Handler(slog.LevelInfo)))
 package argus
 
 import (
@@ -13,7 +25,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -34,7 +48,14 @@ type Config struct {
 	QueueSize  int           // lines buffered before dropping (default 10,000)
 	MaxRetries int           // retries per batch for 429/5xx/network errors (default 3)
 	Backoff    time.Duration // first retry delay, doubled each time (default 250ms)
-	Client     *http.Client
+	// MaxRetryWait caps any single wait, including a server's Retry-After (default 30s).
+	MaxRetryWait time.Duration
+	// MaxLineBytes truncates longer lines before queueing, bounding memory (default 64 KiB).
+	MaxLineBytes int
+	// OnError is called (from the worker goroutine) when lines are dropped
+	// after failed delivery. The default logs at most once every 30 seconds.
+	OnError func(msg string)
+	Client  *http.Client
 }
 
 // Stats are cumulative counters.
@@ -84,10 +105,33 @@ func New(cfg Config) *Shipper {
 	if cfg.Backoff <= 0 {
 		cfg.Backoff = 250 * time.Millisecond
 	}
+	if cfg.MaxRetryWait <= 0 {
+		cfg.MaxRetryWait = 30 * time.Second
+	}
+	if cfg.MaxLineBytes <= 0 {
+		cfg.MaxLineBytes = 64 << 10
+	}
+	if cfg.OnError == nil {
+		cfg.OnError = newThrottledLog(30 * time.Second)
+	}
 	if cfg.Client == nil {
-		cfg.Client = &http.Client{Timeout: 10 * time.Second}
+		// Explicit dial and handshake timeouts so a black-holed server cannot
+		// leave connection attempts hanging around for the OS default.
+		cfg.Client = &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{
+			Proxy:               http.ProxyFromEnvironment,
+			DialContext:         (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+			TLSHandshakeTimeout: 5 * time.Second,
+			ForceAttemptHTTP2:   true,
+			MaxIdleConns:        2,
+			IdleConnTimeout:     60 * time.Second,
+		}}
 	}
 	cfg.URL = strings.TrimRight(cfg.URL, "/")
+	labels := make(map[string]string, len(cfg.Labels)) // the caller may keep mutating its map
+	for k, v := range cfg.Labels {
+		labels[k] = v
+	}
+	cfg.Labels = labels
 	s := &Shipper{cfg: cfg, queue: make(chan entry, cfg.QueueSize), stop: make(chan struct{}), done: make(chan struct{})}
 	go s.run()
 	return s
@@ -108,6 +152,9 @@ func (s *Shipper) Stats() Stats {
 func (s *Shipper) Send(ts time.Time, line string) {
 	if s == nil {
 		return
+	}
+	if len(line) > s.cfg.MaxLineBytes {
+		line = line[:s.cfg.MaxLineBytes] + "...[truncated]"
 	}
 	e := entry{TS: ts.UTC().Format(time.RFC3339Nano), Labels: s.cfg.Labels, Line: line}
 	select {
@@ -190,7 +237,7 @@ func (s *Shipper) deliver(batch []entry) {
 	}
 	delay := s.cfg.Backoff
 	for attempt := 0; ; attempt++ {
-		status, accepted, err := s.post(body)
+		status, accepted, retryAfter, err := s.post(body)
 		switch {
 		case err == nil && status == http.StatusOK:
 			s.sent.Add(int64(accepted))
@@ -199,36 +246,42 @@ func (s *Shipper) deliver(batch []entry) {
 			return
 		case err == nil && status >= 400 && status < 500 && status != http.StatusTooManyRequests:
 			// Our fault (bad key, malformed): retrying cannot help.
-			log.Printf("argus: dropping %d lines: server answered %d", len(batch), status)
+			s.cfg.OnError(fmt.Sprintf("argus: dropping %d lines: server answered %d", len(batch), status))
 			s.dropped.Add(int64(len(batch)))
 			return
 		}
 		if attempt >= s.cfg.MaxRetries {
-			log.Printf("argus: dropping %d lines after %d attempts (last: status %d, err %v)", len(batch), attempt+1, status, err)
+			s.cfg.OnError(fmt.Sprintf("argus: dropping %d lines after %d attempts (last: status %d, err %v)", len(batch), attempt+1, status, err))
 			s.dropped.Add(int64(len(batch)))
 			return
 		}
+		wait := min(max(delay, retryAfter), s.cfg.MaxRetryWait)
+		t := time.NewTimer(wait)
 		select {
-		case <-time.After(delay):
+		case <-t.C:
 		case <-s.stop: // shutting down: try once more immediately rather than waiting
+			t.Stop()
 		}
 		delay *= 2
 	}
 }
 
-func (s *Shipper) post(body []byte) (status, accepted int, err error) {
+func (s *Shipper) post(body []byte) (status, accepted int, retryAfter time.Duration, err error) {
 	req, err := http.NewRequest(http.MethodPost, s.cfg.URL+"/api/v1/ingest/push", bytes.NewReader(body))
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 	req.Header.Set("X-Argus-Key", s.cfg.APIKey)
 	req.Header.Set("Content-Type", "application/x-ndjson")
 	req.Header.Set("Content-Encoding", "gzip")
 	res, err := s.cfg.Client.Do(req)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 	defer res.Body.Close()
+	if secs, err := strconv.Atoi(res.Header.Get("Retry-After")); err == nil && secs > 0 {
+		retryAfter = time.Duration(secs) * time.Second
+	}
 	raw, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	if res.StatusCode == http.StatusOK {
 		var out struct {
@@ -238,12 +291,27 @@ func (s *Shipper) post(body []byte) (status, accepted int, err error) {
 		}
 		if json.Unmarshal(raw, &out) == nil {
 			if out.Rejected > 0 {
-				log.Printf("argus: %d lines rejected: %s", out.Rejected, strings.Join(out.Errors, "; "))
+				s.cfg.OnError(fmt.Sprintf("argus: %d lines rejected: %s", out.Rejected, strings.Join(out.Errors, "; ")))
 			}
-			return res.StatusCode, out.Accepted, nil
+			return res.StatusCode, out.Accepted, 0, nil
 		}
 	}
-	return res.StatusCode, 0, nil
+	return res.StatusCode, 0, retryAfter, nil
+}
+
+// newThrottledLog returns an OnError that logs at most once per interval, so a
+// long outage cannot flood the host application's own logs.
+func newThrottledLog(every time.Duration) func(string) {
+	var mu sync.Mutex
+	var last time.Time
+	return func(msg string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if time.Since(last) >= every {
+			last = time.Now()
+			log.Print(msg)
+		}
+	}
 }
 
 // String describes the shipper for startup logs.

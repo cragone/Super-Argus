@@ -1,0 +1,48 @@
+# Argus agent as a DaemonSet: one pod per node tails /var/log/pods, so every
+# workload that starts on the cluster shows up in Argus as a service.
+#
+#   kubectl create namespace argus
+#   kubectl -n argus create secret generic argus-agent --from-literal=api-key=argus_xxx
+#   kubectl apply -f daemonset.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: argus-agent
+  namespace: argus
+spec:
+  selector:
+    matchLabels: { app: argus-agent }
+  template:
+    metadata:
+      labels: { app: argus-agent }
+    spec:
+      tolerations:
+        - operator: Exists # also run on tainted nodes
+      containers:
+        - name: agent
+          image: argus-agent:latest # build with agent/Dockerfile and push to your registry
+          env:
+            - name: ARGUS_URL
+              value: http://argus.argus.svc:8080
+            - name: ARGUS_API_KEY
+              valueFrom:
+                secretKeyRef: { name: argus-agent, key: api-key }
+            - name: ARGUS_AGENT_MODE
+              value: kubernetes
+            - name: ARGUS_STATE_DIR
+              value: /state
+            - name: ARGUS_LABELS
+              value: cluster=dev # extra labels added to every stream
+            - name: ARGUS_EXCLUDE_NAMESPACES
+              value: argus # do not ship the agent's own logs
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          volumeMounts:
+            - { name: pods, mountPath: /var/log/pods, readOnly: true }
+            - { name: state, mountPath: /state }
+      volumes:
+        - name: pods
+          hostPath: { path: /var/log/pods }
+        - name: state
+          hostPath: { path: /var/lib/argus-agent, type: DirectoryOrCreate }

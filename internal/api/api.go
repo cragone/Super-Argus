@@ -61,6 +61,10 @@ func NewRouter(s *Server) http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	r.Get("/readyz", s.readyz)
+	if s.Ingest != nil {
+		// The path stock Loki clients (Promtail, Alloy, Fluent Bit) default to.
+		r.Post("/loki/api/v1/push", s.Ingest.Loki)
+	}
 	if s.Metrics != nil {
 		r.Method(http.MethodGet, "/metrics", s.metricsHandler())
 	}
@@ -72,6 +76,7 @@ func NewRouter(s *Server) http.Handler {
 		r.Get("/openapi.yaml", serveOpenAPI)
 		if s.Ingest != nil {
 			r.Post("/ingest/push", s.Ingest.Push)
+			r.Post("/ingest/loki", s.Ingest.Loki)
 		}
 
 		r.Group(func(r chi.Router) {
@@ -84,6 +89,7 @@ func NewRouter(s *Server) http.Handler {
 					r.Get("/query/metric", s.queryMetric)
 					r.Get("/labels", s.labelNames)
 					r.Get("/labels/{name}/values", s.labelValues)
+					r.Get("/services", s.listServices)
 				})
 			}
 			r.Group(func(r chi.Router) {
