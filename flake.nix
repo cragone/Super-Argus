@@ -18,11 +18,12 @@
       in
       {
         devShells.default = pkgs.mkShell {
-          packages = commonPackages ++ (with pkgs; [ golangci-lint delve process-compose ]);
+          packages = commonPackages ++ (with pkgs; [ golangci-lint delve process-compose nodejs_22 ]);
           shellHook = ''
-            echo "super-argus dev shell ($(go version))"
+            echo "super-argus dev shell ($(go version), node $(node --version))"
+            echo "  (cd app && npm ci && npm run build:web)  # build the Argus client into internal/webui/dist"
             echo "  go run ./cmd/argus       # start the server (reads ./.env)"
-            echo "  nix run .#dev-env        # start argus + testapp wired together"
+            echo "  nix run .#dev-env        # build the client, then start argus + testapp wired together"
           '';
         };
 
@@ -39,12 +40,22 @@
           type = "app";
           program = "${pkgs.writeShellApplication {
             name = "argus-dev-env";
-            runtimeInputs = [ pkgs.process-compose ];
+            runtimeInputs = [ pkgs.process-compose pkgs.nodejs_22 ];
             text = ''
               if [ ! -f process-compose.yaml ]; then
                 echo "run this from the super-argus repo root" >&2
                 exit 1
               fi
+
+              # cmd/argus embeds internal/webui/dist at build time, so the
+              # Argus client (app/) must be built into it before `go run`
+              # serves anything useful at /. Skip if already built; force
+              # a rebuild with ARGUS_REBUILD_CLIENT=1.
+              if [ ! -f internal/webui/dist/index.html ] || [ "''${ARGUS_REBUILD_CLIENT:-}" = "1" ]; then
+                echo "argus-dev-env: building the Argus client (app/)..." >&2
+                ( cd app && npm ci && npm run build:web )
+              fi
+
               # --no-server: process-compose's own control API defaults to
               # :8080, which collides with Argus's default listen address.
               exec process-compose up -f process-compose.yaml --no-server "$@"
